@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<robot name="simple_car">
+    <!-- Base link -->
+    <link name="base_link">
+      <visual>
+        <geometry>
+          <box size="0.12 0.08 0.10"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.0625" rpy="0.0 0.0 0.0"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.12 0.08 0.12"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.0625" rpy="0.0 0.0 0.0"/>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <origin xyz="0.0 0.0 0.0625" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.01" ixy="0.0" ixz="0.0"
+          iyy="0.01" iyz="0.0"
+          izz="0.01"/>
+      </inertial>
+    </link>
+    <!-- Left wheel link -->
+    <link name="left_wheel_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.0325" length="0.006"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.0325" length="0.006"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.00026" ixy="0.0" ixz="0.0"
+          iyy="0.00026" iyz="0.0"
+          izz="0.00026"/>
+      </inertial>      
+    </link>
+    <!-- Right wheel link -->
+    <link name="right_wheel_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.0325" length="0.006"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.0325" length="0.006"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.00026" ixy="0.0" ixz="0.0"
+          iyy="0.00026" iyz="0.0"
+          izz="0.00026"/>
+      </inertial>      
+    </link>
+
+    <gazebo reference="left_wheel_link">
+      <mu1>10.0</mu1>
+      <mu2>5.0</mu2>
+      <kp>10000</kp>
+      <kd>1</kd>
+    </gazebo>
+
+    <gazebo reference="right_wheel_link">
+      <mu1>10.0</mu1>
+      <mu2>5.0</mu2>
+      <kp>10000</kp>
+      <kd>1</kd>
+    </gazebo>   
+
+
+<!-- Joints -->
+    <joint name="left_wheel" type="continuous">
+      <parent link="base_link"/>
+      <child link="left_wheel_link"/>
+      <origin xyz="0.0 0.055 0.0325" rpy="1.5708 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <joint name="right_wheel" type="continuous">
+      <parent link="base_link"/>
+      <child link="right_wheel_link"/>
+      <origin xyz="0.0 -0.055 0.0325" rpy="1.5708 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+
+<!-- Diff Drive Plugin -->
+  <gazebo>
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+
+      <ros>
+        <namespace>/</namespace>
+        <remapping>cmd_vel:=cmd_vel</remapping>
+      </ros>
+
+      <left_joint>left_wheel</left_joint>
+      <right_joint>right_wheel</right_joint>
+
+      <wheel_separation>1.2</wheel_separation>
+      <wheel_radius>0.3</wheel_radius>
+      <wheel_diameter>0.6</wheel_diameter>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+
+    </plugin>
+  </gazebo>    
+</robot>

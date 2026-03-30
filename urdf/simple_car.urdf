@@ -1,0 +1,153 @@
+<?xml version="1.0"?>
+<robot name="simple_car">
+    <!-- Base link -->
+    <link name="base_link">
+      <visual>
+          <geometry>
+              <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/base.stl" scale="1.0 1.0 1.0"/>
+          </geometry>
+          <origin xyz="0.0 0.0 0.8" rpy="0.0 0.0 0.0"/>
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/base.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.8" rpy="0.0 0.0 0.0"/>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <origin xyz="0.0 0.0 0.8" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.01" ixy="0.0" ixz="0.0"
+          iyy="0.01" iyz="0.0"
+          izz="0.01"/>
+      </inertial>
+    </link>
+    <!-- Left wheel link -->
+    <link name="left_wheel_link">
+      <visual>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/left_wheel2.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/left_wheel2.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.005" ixy="0.0" ixz="0.0"
+          iyy="0.005" iyz="0.0"
+          izz="0.005"/>
+      </inertial>      
+    </link>
+    <!-- Right wheel link -->
+    <link name="right_wheel_link">
+      <visual>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/right_wheel2.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/right_wheel2.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.005" ixy="0.0" ixz="0.0"
+          iyy="0.005" iyz="0.0"
+          izz="0.005"/>
+      </inertial>      
+    </link>
+
+    <gazebo reference="left_wheel_link">
+      <mu1>10.0</mu1>
+      <mu2>5.0</mu2>
+      <kp>10000</kp>
+      <kd>1</kd>
+    </gazebo>
+
+    <gazebo reference="right_wheel_link">
+      <mu1>10.0</mu1>
+      <mu2>5.0</mu2>
+      <kp>10000</kp>
+      <kd>1</kd>
+    </gazebo>   
+
+    <!-- Leg links -->
+    <link name="leg_link1">
+      <visual>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/leg.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="file:///home/zui/ros2_ws/src/my_gazebo_launch/meshes/leg.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.002" ixy="0.0" ixz="0.0"
+          iyy="0.002" iyz="0.0"
+          izz="0.002"/>
+      </inertial>
+    </link>
+    <gazebo reference="leg_link1">
+      <mu1>0.001</mu1>
+      <mu2>0.001</mu2>
+      <kp>10000</kp>
+      <kd>1</kd>      
+    </gazebo>
+
+<!-- Joints -->
+    <joint name="left_wheel" type="continuous">
+      <parent link="base_link"/>
+      <child link="left_wheel_link"/>
+      <origin xyz="0.2 0.6 0.3" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="right_wheel" type="continuous">
+      <parent link="base_link"/>
+      <child link="right_wheel_link"/>
+      <origin xyz="0.2 -0.6 0.3" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="leg1" type="fixed">
+      <parent link="base_link"/>
+      <child link="leg_link1"/>
+      <origin xyz="-0.4 0.0 0.1" rpy="0 0 0"/>
+    </joint>
+
+
+<!-- Diff Drive Plugin -->
+  <gazebo>
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+
+      <ros>
+        <namespace>/</namespace>
+        <remapping>cmd_vel:=cmd_vel</remapping>
+      </ros>
+
+      <!-- 你的 joint 名字 -->
+      <left_joint>left_wheel</left_joint>
+      <right_joint>right_wheel</right_joint>
+
+      <!-- 这些参数非常关键 -->
+      <wheel_separation>1.2</wheel_separation>
+      <wheel_radius>0.3</wheel_radius>
+      <wheel_diameter>0.6</wheel_diameter>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+
+    </plugin>
+  </gazebo>    
+</robot>
