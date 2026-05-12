@@ -10,7 +10,8 @@
       </visual>
       <collision>
         <geometry>
-          <box size="0.12 0.08 0.12"/>
+          <box size="0.13 0.09 0.12"/>
+          <!-- <cylinder radius="0.1" length="0.10"/> -->
         </geometry>
         <origin xyz="0.0 0.0 0.0625" rpy="0.0 0.0 0.0"/>
       </collision>
@@ -67,18 +68,87 @@
     </link>
 
     <gazebo reference="left_wheel_link">
-      <mu1>10.0</mu1>
-      <mu2>5.0</mu2>
-      <kp>10000</kp>
-      <kd>1</kd>
+      <!-- 摩擦系数：提供抓地力 -->
+      <mu1>30.0</mu1>
+      <mu2>30.0</mu2>
+      <!-- 接触刚度：让车轮坚硬（不易变形） -->
+      <kp>500000</kp>
+      <!-- 接触阻尼：吸收震动，防止弹跳（kd/kp ≈ 0.02） -->
+      <kd>10000</kd>
     </gazebo>
 
     <gazebo reference="right_wheel_link">
-      <mu1>10.0</mu1>
-      <mu2>5.0</mu2>
-      <kp>10000</kp>
-      <kd>1</kd>
-    </gazebo>   
+      <!-- 摩擦系数：提供抓地力 -->
+      <mu1>30.0</mu1>
+      <mu2>30.0</mu2>
+      <!-- 接触刚度：让车轮坚硬（不易变形） -->
+      <kp>500000</kp>
+      <!-- 接触阻尼：吸收震动，防止弹跳 -->
+      <kd>10000</kd>
+    </gazebo>  
+
+    <!-- Front Support Link -->
+    <link name="front_support">
+      <visual>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.01" rpy="0.0 0.0 0.0"/>
+      </visual>
+      <collision>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.01" rpy="0.0 0.0 0.0"/>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <origin xyz="0.0 0.0 0.01" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.001" ixy="0.0" ixz="0.0"
+          iyy="0.001" iyz="0.0"
+          izz="0.001"/>
+      </inertial>
+    </link>
+    <!-- Back Support Link -->
+    <link name="back_support">
+      <visual>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.01" rpy="0.0 0.0 0.0"/>
+      </visual>
+      <collision>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+        <origin xyz="0.0 0.0 0.01" rpy="0.0 0.0 0.0"/>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <origin xyz="0.0 0.0 0.01" rpy="0 0 0"/>
+        <inertia 
+          ixx="0.001" ixy="0.0" ixz="0.0"
+          iyy="0.001" iyz="0.0"
+          izz="0.001"/>
+      </inertial>
+    </link>    
+
+    <gazebo reference="front_support">
+      <material>Gazebo/Black</material>
+      <mu1>0.0001</mu1>
+      <mu2>0.0001</mu2>
+      <kp>500000</kp>
+      <kd>10000</kd>
+    </gazebo>
+    <gazebo reference="back_support">
+      <material>Gazebo/Black</material>
+      <mu1>0.0001</mu1>
+      <mu2>0.0001</mu2>
+      <kp>500000</kp>
+      <kd>10000</kd>
+    </gazebo>
+
     <!-- LIDAR Link -->
     <link name="lidar_link">
       <visual>
@@ -113,6 +183,16 @@
       <child link="right_wheel_link"/>
       <origin xyz="0.0 -0.055 0.0325" rpy="1.5708 0 0"/>
       <axis xyz="0 0 1"/>
+    </joint>
+    <joint name="front_support" type="fixed">
+      <parent link="base_link"/>
+      <child link="front_support"/>
+      <origin xyz="0.04 0.0 0.0" rpy="0 0 0"/>
+    </joint>
+    <joint name="back_support" type="fixed">
+      <parent link="base_link"/>
+      <child link="back_support"/>
+      <origin xyz="-0.04 0.0 0.0" rpy="0 0 0"/>
     </joint>
     <joint name="lidar" type="fixed">
       <parent link="base_link"/>
@@ -156,7 +236,7 @@
           </horizontal>
         </scan>
         <range>
-          <min>0.05</min>
+          <min>0.09</min>
           <max>10.0</max>
           <resolution>0.01</resolution>
         </range>

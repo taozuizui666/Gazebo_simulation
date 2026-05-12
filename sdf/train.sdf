@@ -1,0 +1,52 @@
+<sdf version="1.6">
+    <world name="train_world">
+        <include>
+            <uri>model://sun</uri>
+        </include>
+
+        <include>
+            <uri>model://ground_plane</uri>
+        </include>
+
+        <!-- 墙 1: 后墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>0 1.5 0 0 0 0</pose>
+        </include>
+
+        <!-- 墙 2: 前墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>0 -1.5 0 0 0 3.14159</pose>
+        </include>
+
+        <!-- 墙 3: 左墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>-1.5 0 0 0 0 1.5708</pose>
+        </include>
+
+        <!-- 墙 4: 右墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>1.5 0 0 0 0 -1.5708</pose>
+        </include>        <!-- 墙 2: 前墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>0 -1.5 0 0 0 3.14159</pose>
+        </include>
+
+        <!-- 墙 3: 左墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>-1.5 0 0 0 0 1.5708</pose>
+        </include>
+
+        <!-- 墙 4: 右墙 -->
+        <include>
+            <uri>model://wall</uri>
+            <pose>1.5 0 0 0 0 -1.5708</pose>
+        </include>
+    </world>
+
+</sdf>
