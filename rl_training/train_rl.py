@@ -218,9 +218,18 @@ def run_training(args):
         training = vector  # still close the owned servers if normalizer/model loading fails
         if args.resume is not None:
             saved = json.loads((args.resume.parent / "run_config.json").read_text())
-            if saved["vehicle"] != asdict(vehicle) or saved.get("schema_version") != 2:
+            if saved.get("schema_version") != 2:
                 vector.close()
-                raise ValueError("续训要求相同车辆配置和本版巡航模型。")
+                raise ValueError("续训要求本版巡航模型。")
+            if saved["vehicle"] != asdict(vehicle):
+                if not args.resume_allow_vehicle_change:
+                    vector.close()
+                    raise ValueError("续训要求相同车辆配置；确需调速等变更时用 "
+                                     "--resume-allow-vehicle-change 微调。")
+                changed = {k: (saved["vehicle"].get(k), v) for k, v in asdict(vehicle).items()
+                           if saved["vehicle"].get(k) != v}
+                print(f"警告：车辆配置相对模型记录已变更 {changed}，作为微调初始化继续训练。",
+                      flush=True)
             if args.resume.name == "best_model.zip":
                 normalization_path = args.resume.parent / "best_vecnormalize.pkl"
             elif args.resume.stem.startswith("rl_policy_") and args.resume.stem.endswith("_steps"):
@@ -326,6 +335,8 @@ def main():
     parser.add_argument("--eval-jitter-deg", type=float, default=0.0, help="评估初始朝向的均匀扰动上限")
     parser.add_argument("--gui", action="store_true", help="评估时打开 Gazebo，以正常物理时间观看策略")
     parser.add_argument("--resume", type=Path, help="从本版模型及同目录 vecnormalize.pkl 续训")
+    parser.add_argument("--resume-allow-vehicle-change", action="store_true",
+                        help="允许车辆参数（如速度）与模型记录不同，将旧模型作为初始化微调")
     args = parser.parse_args()
     if args.evaluate is not None and args.resume is not None:
         parser.error("--evaluate 和 --resume 不能同时使用")

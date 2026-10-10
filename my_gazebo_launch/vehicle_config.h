@@ -4,7 +4,7 @@
 // 仿真直接读取这些宏。PID 应调用 AiCar::wheelTargets(label)，不要再使用 PWM 值作速度。
 // 宏的值使用普通数字；修改后重新启动仿真。长度单位 m，速度单位 m/s。
 #define AICAR_LABEL_COUNT                  15
-#define AICAR_FORWARD_SPEED_MPS            0.1
+#define AICAR_FORWARD_SPEED_MPS            0.2
 #define AICAR_MAX_WHEEL_SPEED_RATIO        0.6
 #define AICAR_WHEEL_RADIUS_M               0.0325
 #define AICAR_WHEEL_SEPARATION_M            0.11
