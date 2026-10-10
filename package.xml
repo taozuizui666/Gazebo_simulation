@@ -3,9 +3,27 @@
 <package format="3">
   <name>my_gazebo_launch</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Fixed-speed car simulation with shared wheel targets and RPLIDAR inputs</description>
   <maintainer email="zui@todo.todo">zui</maintainer>
   <license>TODO: License declaration</license>
+
+  <depend>python3-setuptools</depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>gazebo_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>gazebo_plugins</exec_depend>
+  <exec_depend>gazebo_dev</exec_depend>
+  <exec_depend>pkg-config</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f6f8">
+  <meta name="description" content="小车持续避障巡航：训练进度、碰撞与卡住时间、独立评估和模型信息。">
+  <title>小车巡航 · RL 进度</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">↗</span><div><h1>小车巡航</h1><p>RL 训练观测台</p></div></div>
+      <button id="refresh" class="refresh" type="button" aria-label="立即刷新进度">↻ <span>刷新</span></button>
+    </header>
+    <div class="connection"><span id="connection-badge" class="badge muted">连接中</span><span id="data-age">正在读取数据…</span></div>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div class="run-picker"><label for="run-select">训练批次</label><select id="run-select" aria-label="选择训练批次"><option>正在读取…</option></select></div>
+    <main>
+      <section id="overview" role="tabpanel" aria-labelledby="nav-overview">
+        <div id="hero" class="hero skeleton"><p class="eyebrow">持续避障巡航</p><div class="hero-value">读取中…</div><p>等待真实训练记录</p></div>
+        <div id="headline-metrics" class="metric-grid"></div>
+        <div class="section-title"><h2>多久会发生失败</h2><span id="window-label" class="caption"></span></div>
+        <div id="failure-cards" class="failure-grid"></div>
+        <p class="explain">正常达到时限表示“至少安全行驶到这里”。没有观察到失败时，不推算撞墙或卡住的时间。</p>
+        <div id="live-section" hidden><div class="section-title"><h2>此刻的仿真车</h2><span class="caption">各车独立计时</span></div><div id="live-cards" class="live-grid"></div></div>
+        <div id="evaluation-section" hidden><div class="section-title"><h2>最近独立评估</h2></div><div id="evaluation-cards"></div></div>
+        <div class="section-title"><h2>已验证模型</h2><span class="caption">与训练探索分开统计</span></div>
+        <div id="validation-card" class="card"></div>
+      </section>
+      <section id="trends" role="tabpanel" aria-labelledby="nav-trends" hidden>
+        <div class="section-title"><h2>训练趋势</h2><span class="caption">选中批次</span></div>
+        <div class="chips" id="chart-controls" aria-label="选择曲线指标"></div>
+        <div class="card chart-card"><div class="chart-heading"><h3 id="chart-title">回合持续时间</h3><strong id="chart-value">—</strong></div><div id="chart" class="chart"></div><p id="chart-note" class="caption"></p></div>
+        <div id="optimizer-metrics" class="metric-grid"></div>
+        <p class="explain">训练中包含随机探索。能否稳定驾驶以独立评估的碰撞、卡住和持续时间为准。曲线横轴是累计训练采样步数。</p>
+      </section>
+      <section id="episodes" role="tabpanel" aria-labelledby="nav-episodes" hidden>
+        <div class="section-title"><h2>每一次巡航</h2></div>
+        <div class="segmented" id="episode-source"><button type="button" data-source="training" class="active">训练回合</button><button type="button" data-source="validated">独立验收</button></div>
+        <div class="filter-row"><label for="reason-select">结束原因</label><select id="reason-select"><option value="all">全部</option><option value="failure">只看失败</option><option value="collision">撞墙 / 碰撞</option><option value="stuck">卡住</option><option value="looping">局部绕圈</option><option value="slow">持续低速</option><option value="out_of_bounds">越界</option><option value="time_limit">正常达到时限</option></select></div>
+        <p id="episode-summary" class="caption"></p><div id="episode-list" class="episode-list"></div>
+        <button id="more-episodes" class="wide-button" type="button" hidden>显示更多回合</button>
+      </section>
+      <section id="model" role="tabpanel" aria-labelledby="nav-model" hidden>
+        <div class="section-title"><h2>已验证模型参数</h2><span id="model-badge" class="badge"></span></div>
+        <div id="model-details" class="card"></div>
+        <div class="section-title"><h2>选中训练批次的设置</h2></div><div id="run-details" class="card"></div>
+        <details class="card"><summary>验收轨迹与速度</summary><div id="validation-image"></div></details>
+        <details class="card"><summary>完整训练曲线</summary><div id="learning-image"></div></details>
+        <p class="explain">模型输入只有雷达距离。速度目标来自共享配置；实际接触与里程计用于奖励和验收。验证范围是记录中的地图、起点与车辆参数。</p>
+      </section>
+    </main>
+    <footer><span id="update-policy"></span><br><span id="snapshot-time"></span><br>仿真时间与电脑实际耗时分别统计 · 仅展示进度，不控制车辆</footer>
+  </div>
+  <nav class="navigation" aria-label="进度导航" role="tablist">
+    <button id="nav-overview" type="button" data-tab="overview" role="tab" aria-selected="true" aria-controls="overview" class="active"><span aria-hidden="true">◉</span>概览</button>
+    <button id="nav-trends" type="button" data-tab="trends" role="tab" aria-selected="false" aria-controls="trends"><span aria-hidden="true">↗</span>曲线</button>
+    <button id="nav-episodes" type="button" data-tab="episodes" role="tab" aria-selected="false" aria-controls="episodes"><span aria-hidden="true">☷</span>回合</button>
+    <button id="nav-model" type="button" data-tab="model" role="tab" aria-selected="false" aria-controls="model"><span aria-hidden="true">◇</span>模型</button>
+  </nav>
+  <noscript>请启用 JavaScript 以查看自动更新的训练数据。</noscript>
+</body>
+</html>

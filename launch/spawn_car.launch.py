@@ -1,30 +1,13 @@
+"""Compatibility entry point for the configured car and observation interface."""
+
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, TimerAction
-from launch_ros.actions import Node
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+
 
 def generate_launch_description():
-
-    gazebo = ExecuteProcess(
-        cmd=[
-            'gazebo',
-            '--verbose',
-            # '-s', 'libgazebo_ros_init.so',
-            '-s', 'libgazebo_ros_factory.so'
-        ],
-        output='screen'
-    )
-
-    spawn = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
-        arguments=[
-            '-file', '/home/zui/ros2_ws/src/my_gazebo_launch/urdf/simple_car1.urdf',
-            '-entity', 'base_link',
-        ],
-        output='screen'
-    )
-
-    return LaunchDescription([
-        gazebo,
-        TimerAction(period=3.0, actions=[spawn])
-    ])
+    path = Path(get_package_share_directory("my_gazebo_launch")) / "launch/train_world.launch.py"
+    return LaunchDescription([IncludeLaunchDescription(PythonLaunchDescriptionSource(str(path)))])

@@ -1,0 +1,25 @@
+# RL 训练依赖
+# 安装: python -m pip install --user -r requirements.txt
+
+# 核心 RL 框架
+# Humble colcon --symlink-install 使用 legacy develop --uninstall。
+setuptools>=59.6,<80
+stable-baselines3>=2.9,<3
+gymnasium>=1.2,<2
+
+# PyTorch (stable-baselines3 依赖)
+torch>=2.0,<3
+
+# 辅助工具
+numpy>=1.24,<2
+# 与本机已有 ONNX 的依赖兼容，避免 ml-dtypes 0.6 再要求 NumPy 2。
+ml-dtypes>=0.5,<0.6
+tensorboard>=2.14.0
+tqdm>=4.65.0
+rich>=13.0
+
+# 可视化（可选）
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# 当前阶段不做 ONNX/单片机网络导出。

@@ -1,4 +1,6 @@
 <?xml version="1.0"?>
+<!-- Geometry template. train_world.launch.py renders wheel/lidar parameters from
+     my_gazebo_launch/vehicle_config.h; change the shared macros for runtime use. -->
 <robot name="simple_car">
     <!-- Base link -->
     <link name="base_link">
@@ -176,13 +178,13 @@
       <parent link="base_link"/>
       <child link="left_wheel_link"/>
       <origin xyz="0.0 0.055 0.0325" rpy="1.5708 0 0"/>
-      <axis xyz="0 0 1"/>
+      <axis xyz="0 0 -1"/>
     </joint>
     <joint name="right_wheel" type="continuous">
       <parent link="base_link"/>
       <child link="right_wheel_link"/>
       <origin xyz="0.0 -0.055 0.0325" rpy="1.5708 0 0"/>
-      <axis xyz="0 0 1"/>
+      <axis xyz="0 0 -1"/>
     </joint>
     <joint name="front_support" type="fixed">
       <parent link="base_link"/>
@@ -213,8 +215,8 @@
       <right_joint>right_wheel</right_joint>
 
       <wheel_separation>0.11</wheel_separation>
-      <wheel_radius>0.0325</wheel_radius>
       <wheel_diameter>0.065</wheel_diameter>
+      <robot_base_frame>base_link</robot_base_frame>
       <publish_odom>true</publish_odom>
       <publish_odom_tf>true</publish_odom_tf>
 
@@ -240,12 +242,12 @@
           <max>10.0</max>
           <resolution>0.01</resolution>
         </range>
-      </ray>
       <noise>
         <type>gaussian</type>
         <mean>0.0</mean>
         <stddev>0.01</stddev>
       </noise>
+      </ray>
 
       <plugin name="gazebo_ros_laser" filename="libgazebo_ros_ray_sensor.so">
         <ros>
@@ -253,7 +255,7 @@
           <remapping>~/out:=scan</remapping>
         </ros>
         <output_type>sensor_msgs/LaserScan</output_type>
-        <frameName>lidar_link</frameName>
+        <frame_name>lidar_link</frame_name>
       </plugin>
     </sensor>
   </gazebo>
