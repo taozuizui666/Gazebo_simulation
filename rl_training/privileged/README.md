@@ -95,8 +95,8 @@ Monitor 出生点记录、模型和归一化状态。`evaluation/multi_map.json`
 
 手机页显示各 worker 当前地图/出生点，以及每张评估地图的完成率、均速、失败次数、
 最早/平均撞墙和卡住时间。无失败只表示本次测试时间内没有观察到；不能解释为永不撞墙。
-`best_model.zip` 仍按等回合数的跨地图平均奖励选择，查看逐地图结果后还需在额外未参与选模
-的地图长时验收；不会自动替换 `latest_validated`。
+`best_model.zip` 仍按等回合数的跨地图平均奖励选择。只有下方的独立自动验收全部通过，
+才会更新 `latest_validated`；定期选模本身不会更新这个链接。
 
 进度发布器由 `train_multi_map.py` 顶部的开关控制，默认随训练自动启动：
 
@@ -120,3 +120,43 @@ python rl_training/monitoring/publish_progress.py --serve --publish
 
 本地手机同 Wi-Fi 访问 `http://电脑IP:8765`，远端访问既有 GitHub Pages 页面。
 中止训练可按 Ctrl+C，或在本次模型目录创建 `STOP` 文件；程序会保存当前权重。
+
+## 训练结束后自动验收
+
+`train_multi_map.py` 顶部增加了独立验收配置：
+
+```python
+AUTO_VALIDATE = True
+VALIDATION_WORLDS = [...]             # 与训练/定期评估分开的地图
+VALIDATION_MODEL_NAME = "best_model.zip"
+VALIDATION_EPISODES_PER_MAP = 8
+VALIDATION_MIN_SCENARIOS = 8
+VALIDATION_EPISODE_SECONDS = 300.0
+VALIDATION_MIN_SPEED_COMPLIANCE = 0.95
+VALIDATION_POSITION_JITTER_M = 0.03
+VALIDATION_YAW_JITTER_DEG = 10.0
+VALIDATION_SEED = 20261012
+```
+
+默认地图在 `assets/worlds/validation/`，用种子 20261012 生成圆角矩形和椭圆各一张，
+文件名带 `validation_` 前缀，未放入训练或选模列表。每图至少 8 个不同位置/朝向，
+每回合巡航 300 仿真秒；所有回合必须正常达到时限，且零碰撞、卡住、小范围绕圈、
+持续低速及越界，每回合速度合规率至少 95%。速度容差沿用模型训练配置。
+两图完整跑满共计 4800 仿真秒（80 分钟），实际墙钟耗时取决于仿真速度。
+这是额外的验收时间，不包含在 `MAX_TRAINING_HOURS` 的训练预算内。
+
+训练正常完成或达到时间预算后，仿真训练实例先关闭，再串行验收本批次的最佳模型；
+若训练太短尚未产生 `best_model.zip`，使用本次 `rl_policy_final.zip`。
+验收只执行固定策略，不进行 PPO 更新。按 Ctrl+C 或创建 STOP 主动停止训练时不自动验收。
+验收中再按 Ctrl+C 会停止验收，已保存的训练权重仍保留。
+
+全部通过才冻结到 `validated_privileged_步数_时间/` 并更新 `latest_validated`。
+未通过或验收未完成均不会晋升模型。每批次的 `auto_validation.json` 记录验收状态、
+参数和报告路径；各地图报告仍保存为 `policies/evaluation_时间_编号/`，网页现有的
+独立评估区域可以查看实时进展，发布器会等验收结束后再同步最终状态并退出。
+`--check` 会提前检查验收地图是否与训练/选模重复、起点数、扰动后净空及参数有效性。
+验收地图与 JSON 也会随训练批次保存快照。
+
+关闭自动验收只需设置 `AUTO_VALIDATE=False`，不影响训练保存或 AUTO_RESUME。
+自动续训仍选择最近训练状态；`latest_validated` 专门保留已通过所配置验收的模型。
+通过这些测试仅说明在记录的地图、起点、扰动和时长下达标，不代表任意地图都不会撞墙。

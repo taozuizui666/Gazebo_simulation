@@ -6,6 +6,7 @@ from datetime import datetime
 import hashlib
 from io import BytesIO
 import json
+import math
 from pathlib import Path
 import shutil
 import sys
@@ -24,7 +25,15 @@ MIN_SPEED_COMPLIANCE = 0.95
 LATEST_VALIDATED_NAME = "latest_validated"
 
 
-def qualify(model_path, report_paths, output_dir=None):
+def qualify(model_path, report_paths, output_dir=None, *,
+            min_episodes=MIN_EPISODES_PER_REPORT, min_scenarios=MIN_SCENARIOS_PER_REPORT,
+            min_episode_sim_seconds=MIN_EPISODE_SIM_SECONDS,
+            min_speed_compliance=MIN_SPEED_COMPLIANCE):
+    if (not isinstance(min_episodes, int) or not isinstance(min_scenarios, int)
+            or not 1 <= min_scenarios <= min_episodes
+            or not math.isfinite(min_episode_sim_seconds) or min_episode_sim_seconds <= 0
+            or not math.isfinite(min_speed_compliance) or not 0 < min_speed_compliance <= 1):
+        raise ValueError("验收回合数、起点数、时长或速度合规率配置无效。")
     source = model_path.parent
     metadata = json.loads((source / "run_config.json").read_text())
     mode = metadata.get("observation_mode", "lidar")
@@ -46,13 +55,15 @@ def qualify(model_path, report_paths, output_dir=None):
         if mode == "privileged" and (report.get("lidar_sensor_enabled") is not False
                                      or report.get("observation_spec") != metadata["observation_spec"]):
             raise ValueError(f"{path}: 特权模型必须以相同地图观测且关闭雷达进行验收。")
-        if (not report["passed"] or len(episodes) < MIN_EPISODES_PER_REPORT
-                or len({e["scenario"] for e in episodes}) < MIN_SCENARIOS_PER_REPORT):
+        if (not report["passed"] or len(episodes) < min_episodes
+                or len({e["scenario"] for e in episodes}) < min_scenarios):
             raise ValueError(f"{path}: 多起点验证未达标。")
         for entry in episodes:
             if (entry["reason"] != "time_limit" or not entry["success"]
-                    or entry["sim_duration_sec"] < MIN_EPISODE_SIM_SECONDS - 1e-6
-                    or entry["speed_compliance"] < MIN_SPEED_COMPLIANCE
+                    or not math.isfinite(entry["sim_duration_sec"])
+                    or entry["sim_duration_sec"] < min_episode_sim_seconds - 1e-6
+                    or not math.isfinite(entry["speed_compliance"])
+                    or entry["speed_compliance"] < min_speed_compliance
                     or any(entry[key] for key in ("collided", "stuck", "looping", "slow", "out_of_bounds"))):
                 raise ValueError(f"{path}: 巡航时长、速度或失败次数不符合门槛。")
         reports.append(report)
@@ -106,6 +117,9 @@ def qualify(model_path, report_paths, output_dir=None):
         "min_episode_mean_speed_mps": min(e["mean_speed_mps"] for e in episodes),
         "max_episode_mean_speed_mps": max(e["mean_speed_mps"] for e in episodes),
         "collisions": 0, "stalls": 0, "small_loops": 0, "slow_failures": 0, "out_of_bounds": 0,
+        "criteria": {"min_episodes_per_report": min_episodes, "min_scenarios_per_report": min_scenarios,
+                     "min_episode_sim_seconds": min_episode_sim_seconds,
+                     "min_speed_compliance": min_speed_compliance},
         "scope": "Only the recorded worlds, vehicle configuration, starts, noise and durations were tested.",
         "source_reports": [str(p.resolve()) for p in report_paths],
     }
@@ -113,11 +127,11 @@ def qualify(model_path, report_paths, output_dir=None):
     # Keep a stable local inference path, while preserving every frozen model.
     temporary = output_dir / f".{latest_name}_{uuid4().hex}.tmp"
     temporary.symlink_to(directory.name, target_is_directory=True)
-    temporary.replace(latest)
     result_latest = result_dir.parent / latest_name
     result_temporary = result_dir.parent / temporary.name
     result_temporary.symlink_to(result_dir.name, target_is_directory=True)
     result_temporary.replace(result_latest)
+    temporary.replace(latest)
     print(f"已冻结通过验证的模型：{directory}")
     print(f"固定入口：{latest / 'model.zip'}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

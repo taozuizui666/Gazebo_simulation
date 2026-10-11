@@ -263,8 +263,10 @@ def run_training(args):
     shutil.copy2(args.config_header, directory / "vehicle_config.h")
     shutil.copy2(Path(config.__file__), directory / "training_config.py")
     shutil.copy2(Path(family_config(args.observation_mode).__file__), directory / "input_config.py")
-    snapshot_sources(directory, args.world,
-                     campaign["train_worlds"] + campaign["eval_worlds"] if campaign else ())
+    snapshot_worlds = campaign["train_worlds"] + campaign["eval_worlds"] if campaign else []
+    if getattr(args, "validation", {}).get("enabled"):
+        snapshot_worlds += args.validation["worlds"]
+    snapshot_sources(directory, args.world, snapshot_worlds)
     write_metadata(directory / "run_config.json", metadata)
     print(f"巡航训练：模式 {args.observation_mode}，标签 0～{vehicle.label_count-1}，"
           f"输入 {metadata['observation_spec']['dimension']} 维，"

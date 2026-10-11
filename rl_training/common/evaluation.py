@@ -95,6 +95,9 @@ def save_trajectory_plot(path, trajectories, episodes, world, settings):
 
 
 def evaluate_model(args):
+    min_speed_compliance = getattr(args, "min_speed_compliance", .95)
+    if not math.isfinite(min_speed_compliance) or not 0 < min_speed_compliance <= 1:
+        raise ValueError("min_speed_compliance 必须在 (0, 1] 范围内。")
     if args.eval_episodes <= 0:
         raise ValueError("eval-episodes 必须大于零。")
     if not all(math.isfinite(v) and v >= 0 for v in (args.eval_jitter_m, args.eval_jitter_deg)):
@@ -197,7 +200,8 @@ def evaluate_model(args):
         "success_rate": sum(e["success"] for e in episodes) / len(episodes),
         "total_distance_m": sum(e["distance_m"] for e in episodes),
         "total_sim_seconds": sum(e["sim_duration_sec"] for e in episodes),
-        "passed": all(e["success"] and e["speed_compliance"] >= .95 for e in episodes),
+        "min_speed_compliance": min_speed_compliance,
+        "passed": all(e["success"] and e["speed_compliance"] >= min_speed_compliance for e in episodes),
     }
     try:
         (directory / "evaluation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")

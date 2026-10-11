@@ -20,6 +20,20 @@ CONFIG_HEADER = ROOT / "my_gazebo_launch/vehicle_config.h"  # 速度/轮距仍�
 AUTO_RESUME = True                 # 优先接着 OUTPUT_DIR 中最近的多地图训练
 RESUME_MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"                 # 无自动续训历史时使用；关闭 AUTO_RESUME 可固定指定模型
 RESUME_ALLOW_VEHICLE_CHANGE = False
+# 训练正常结束后独立验收；Ctrl+C/STOP 不自动启动验收。
+AUTO_VALIDATE = False
+VALIDATION_WORLDS = [ROOT / "assets/worlds/validation" / name for name in (
+    "validation_rounded_rectangle_001.sdf", "validation_ellipse_002.sdf")]
+VALIDATION_MODEL_NAME = "best_model.zip"  # 尚无 best 时使用本次 final
+VALIDATION_EPISODES_PER_MAP = 8
+VALIDATION_MIN_SCENARIOS = 8        # 至少这么多个不同的初始位置/朝向
+VALIDATION_EPISODE_SECONDS = 300.0  # 每个回合的仿真时长；不是整轮验收时长
+VALIDATION_MIN_SPEED_COMPLIANCE = 0.95  # 每回合至少 95% 时间在目标速度容差内
+VALIDATION_POSITION_JITTER_M = 0.03
+VALIDATION_YAW_JITTER_DEG = 10.0
+VALIDATION_SEED = 20261012
+# 所有回合必须零碰撞、卡住、局部绕圈、持续低速和越界才更新 latest_validated。
+# 验收在训练预算结束后进行，会额外耗时；不更新策略权重。
 NUM_TRAIN_ENVS = 6                  # 独立 Gazebo 实例，共同更新一个 PPO
 STEP_SIM_TIME_SEC = 0.2             # 一次动作持续的仿真秒数，不是加速倍率
 EPISODES_PER_MAP = 10               # 每个 worker 完成多少回合后换地图
@@ -95,6 +109,12 @@ def build_args():
         ppo={name: globals()[name] for name in (
             "LEARNING_RATE", "BATCH_SIZE", "N_EPOCHS", "GAMMA", "GAE_LAMBDA", "CLIP_RANGE",
             "ENTROPY_COEFF", "VALUE_COEFF", "MAX_GRAD_NORM", "POLICY_NET_ARCH")},
+        validation=dict(enabled=AUTO_VALIDATE, worlds=[str(p.resolve()) for p in VALIDATION_WORLDS],
+            model_name=VALIDATION_MODEL_NAME, episodes_per_map=VALIDATION_EPISODES_PER_MAP,
+            min_scenarios=VALIDATION_MIN_SCENARIOS, episode_seconds=VALIDATION_EPISODE_SECONDS,
+            min_speed_compliance=VALIDATION_MIN_SPEED_COMPLIANCE,
+            jitter_m=VALIDATION_POSITION_JITTER_M, jitter_deg=VALIDATION_YAW_JITTER_DEG,
+            seed=VALIDATION_SEED),
         multi_map=dict(train_worlds=[str(p.resolve()) for p in TRAIN_WORLDS],
             eval_worlds=[str(p.resolve()) for p in EVAL_WORLDS], episodes_per_map=EPISODES_PER_MAP,
             eval_episodes_per_map=EVAL_EPISODES_PER_MAP,
@@ -113,6 +133,10 @@ def main():
     args.resume = resolve_resume(args, AUTO_RESUME)
     validate_resume(args)
     _, _, _, vehicle, _ = training_configuration(args)
+    from rl_training.privileged.auto_validate import validation_worlds, run_validation
+    acceptance_worlds = validation_worlds(args)
+    if acceptance_worlds:
+        print("验收地图：" + ", ".join(str(w.world) for w in acceptance_worlds), flush=True)
     for role in ("train", "eval"):
         print(f"{role}: " + ", ".join(Path(w).name for w in args.multi_map[role + "_worlds"]), flush=True)
     print(f"目标速度 {vehicle.forward_speed_mps} m/s；"
@@ -120,7 +144,8 @@ def main():
     if not options.check:
         from rl_training.monitoring.training_progress import training_progress
         with training_progress(ENABLE_PROGRESS, PUBLISH_TO_GITHUB):
-            run_training(args)
+            directory = run_training(args)
+            run_validation(args, directory)
 
 
 if __name__ == "__main__":
