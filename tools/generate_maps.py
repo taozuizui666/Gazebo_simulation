@@ -13,9 +13,9 @@ from adjust_wall_height import DEFAULT_WALL_HEIGHT_M, adjust_wall_height
 
 # ===================== 可修改配置区 =====================
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT_DIR = SIMULATION_ROOT / "assets/worlds/generated"
+DEFAULT_OUTPUT_DIR = SIMULATION_ROOT / "assets/worlds/simple"
 DEFAULT_PREVIEW_DIR = SIMULATION_ROOT / "results/maps"  # 按地图输出目录名分批保存 PNG/PDF。
-BASE_WORLD_FILE = SIMULATION_ROOT / "assets/worlds/train_world3.sdf"  # 复用光照、地面、物理配置。
+BASE_WORLD_FILE = SIMULATION_ROOT / "assets/worlds/simple/train_world3.sdf"  # 复用光照、地面、物理配置。
 DEFAULT_MAP_COUNT = 6
 DEFAULT_TEMPLATES = ("rounded_rectangle", "ellipse")
 DEFAULT_SEED = 42  # 相同参数和种子生成相同地图。
@@ -33,6 +33,18 @@ WORKSPACE_PADDING_M = 0.1
 def centerline(template, width, height, radius):
     """返回逆时针道路中心线上的点及其外法向量。"""
     a, b = width / 2, height / 2
+    if template == "rectangle":
+        return [((a, b), (1, 1)), ((-a, b), (-1, 1)),
+                ((-a, -b), (-1, -1)), ((a, -b), (1, -1))]
+    if template == "figure_eight":
+        count = max(120, math.ceil(4 * math.pi * max(a, b) / CURVE_SEGMENT_LENGTH_M))
+        result = []
+        for i in range(count):
+            t = 2 * math.pi * i / count
+            dx, dy = 2 * a * math.cos(2*t), b * math.cos(t)
+            norm = math.hypot(dx, dy)
+            result.append(((a * math.sin(2*t), b * math.sin(t)), (dy/norm, -dx/norm)))
+        return result
     if template == "ellipse":
         count = max(24, math.ceil(2 * math.pi * max(a, b) / CURVE_SEGMENT_LENGTH_M))
         result = []
@@ -72,6 +84,69 @@ def wall_boxes(points, road_width):
     return boxes
 
 
+def open_crossing(boxes, points, road_width):
+    """去除 8 字交叉口内的墙段；按中心线距离裁剪，不封堵另一路。"""
+    import numpy as np
+
+    line = np.asarray([point for point, _ in points])
+    vectors = np.roll(line, -1, axis=0) - line
+    squared = (vectors * vectors).sum(axis=1)
+    offset = (road_width + WALL_THICKNESS_M) / 2
+    result = []
+    for index, (x, y, length, yaw) in enumerate(boxes):
+        # 5 mm 栅格只用于裁剪交叉口端部；连续保留部分仍合并成一个 box。
+        count = max(1, math.ceil(length / .005))
+        step = length / count
+        positions = -length/2 + (np.arange(count) + .5) * step
+        samples = np.column_stack((x + positions*math.cos(yaw), y + positions*math.sin(yaw)))
+        delta = samples[:, None, :] - line
+        fractions = np.clip((delta * vectors).sum(axis=2) / squared, 0, 1)
+        distances = np.linalg.norm(delta - fractions[:, :, None]*vectors, axis=2)
+        # 本支路相邻线段不参与裁剪，避免曲线离散误差切断弯道墙体。
+        neighbors = (np.arange(len(line)) - index % len(line) + len(line)//2) % len(line) - len(line)//2
+        distances[:, np.abs(neighbors) <= len(line)//8] = np.inf
+        distance = distances.min(axis=1)
+        keep = distance >= offset - .001
+        edges = np.flatnonzero(np.diff(np.r_[False, keep, False]))
+        for start, end in zip(edges[::2], edges[1::2]):
+            middle = -length/2 + (start+end)*step/2
+            result.append((x + middle*math.cos(yaw), y + middle*math.sin(yaw),
+                           (end-start)*step, yaw))
+    # 找出裁剪后真正外露的墙端，包含恰好落在原分段端点的切口。
+    centers = np.asarray([box[:2] for box in result])
+    lengths = np.asarray([box[2] for box in result])
+    directions = np.asarray([(math.cos(box[3]), math.sin(box[3])) for box in result])
+    cut_ends = []
+    for index, (center, length, direction) in enumerate(zip(centers, lengths, directions)):
+        for side in (-1, 1):
+            endpoint = center + side*length/2*direction
+            delta = endpoint + side*.0001*direction - centers
+            along = np.abs((delta*directions).sum(axis=1))
+            across = np.abs(delta[:, 0]*directions[:, 1] - delta[:, 1]*directions[:, 0])
+            covered = ((along < lengths/2) & (across < WALL_THICKNESS_M/2)
+                       & (np.abs(directions @ direction) > .95))
+            covered[index] = False
+            if not covered.any():
+                cut_ends.append((endpoint, -side*direction))
+    # 每对裁剪端点属于同一墙角。补一个沿角平分线横向的短 box，
+    # 封住平切墙端之间的 V 口；形成平头接缝，不向行驶通道延伸尖角。
+    while cut_ends:
+        first, d1 = cut_ends.pop()
+        nearest = min(range(len(cut_ends)), key=lambda i: np.linalg.norm(cut_ends[i][0]-first))
+        second, d2 = cut_ends.pop(nearest)
+        if float(np.dot(d1, d2)) < -.95:
+            continue  # 原有相邻共线墙段的重叠端点，不是交叉口墙角。
+        along = np.linalg.solve(np.column_stack((d1, -d2)), second-first)[0]
+        joint = first + along*d1
+        inward = (d1+d2) / np.linalg.norm(d1+d2)
+        cosine = float(np.dot(d1, inward))
+        sine = math.sqrt(max(0., 1-cosine*cosine))
+        center = joint + inward * (WALL_THICKNESS_M/2 * (1-sine))
+        result.append((*center, WALL_THICKNESS_M*cosine,
+                       math.atan2(inward[1], inward[0]) + math.pi/2))
+    return result
+
+
 def wall_polygons(boxes):
     polygons = []
     for x, y, length, yaw in boxes:
@@ -95,7 +170,7 @@ def make_world(name, boxes):
     extent = max(abs(v) for polygon in wall_polygons(boxes) for point in polygon for v in point)
     camera = ET.SubElement(ET.SubElement(world, "gui"), "camera", name="user_camera")
     ET.SubElement(camera, "pose").text = (
-        f"{1.2*extent} {-1.6*extent} {1.7*extent} 0 {math.atan(.85)} {math.atan2(1.6, -1.2)}")
+        f"{2.4*extent} {-3.2*extent} {3.4*extent} 0 {math.atan(.85)} {math.atan2(1.6, -1.2)}")
     ET.SubElement(camera, "view_controller").text = "orbit"
     model = ET.SubElement(world, "model", name="track_walls")
     ET.SubElement(model, "static").text = "true"
@@ -120,6 +195,11 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
     a, b = width / 2, height / 2
     forward = [(a, 0., 0., math.pi/2), (0., b, 0., math.pi),
                (-a, 0., 0., -math.pi/2), (0., -b, 0., 0.)]
+    if template == "figure_eight":
+        forward = []
+        for t in (math.pi/4, 3*math.pi/4, 5*math.pi/4, 7*math.pi/4):
+            forward.append((a*math.sin(2*t), b*math.sin(t), 0.,
+                            math.atan2(b*math.cos(t), 2*a*math.cos(2*t))))
     reverse = [(x, y, z, math.atan2(math.sin(yaw+math.pi), math.cos(yaw+math.pi)))
                for x, y, z, yaw in forward]
     vertices = [point for polygon in wall_polygons(boxes) for point in polygon]
@@ -151,7 +231,7 @@ def draw_preview(axis, boxes, settings):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=DEFAULT_MAP_COUNT)
-    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse"),
+    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "figure_eight"),
                         default=DEFAULT_TEMPLATES)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -180,9 +260,23 @@ def main():
         if template == "rounded_rectangle":
             if not offset < radius < min(width, height) / 2:
                 parser.error("圆角半径必须大于半道路宽加半墙厚，且小于半地图短边。")
-        elif offset >= min(width, height)**2 / (2 * max(width, height)):
+        elif template == "ellipse" and offset >= min(width, height)**2 / (2 * max(width, height)):
             parser.error("道路过宽，椭圆内侧边界会自交；请增大短边或减小道路宽度。")
-        boxes = wall_boxes(centerline(template, width, height, radius), road_width)
+        elif template == "rectangle" and min(width, height) <= 2*offset:
+            parser.error("矩形尺寸过小，内墙会相交。")
+        elif template == "figure_eight":
+            # 验证采样曲率半径，防止内侧偏移曲线在窄弯处折返。
+            for i in range(720):
+                t = 2*math.pi*i/720
+                dx, dy = width*math.cos(2*t), height/2*math.cos(t)
+                ddx, ddy = -2*width*math.sin(2*t), -height/2*math.sin(t)
+                curvature = abs(dx*ddy-dy*ddx) / (dx*dx+dy*dy)**1.5
+                if offset*curvature >= 1:
+                    parser.error("8 字弯道过窄；请增大地图尺寸或减小道路宽度。")
+        points = centerline(template, width, height, radius)
+        boxes = wall_boxes(points, road_width)
+        if template == "figure_eight":
+            boxes = open_crossing(boxes, points, road_width)
         name = f"{template}_{index+1:03d}"
         settings = map_settings(template, width, height, road_width, radius, args.seed, boxes)
         maps.append((name, boxes, settings))

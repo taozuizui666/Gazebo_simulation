@@ -2,7 +2,7 @@
 
 ## 批量生成训练地图
 
-[generate_maps.py](generate_maps.py) 从圆角矩形和椭圆两种环形模板生成地图。
+[generate_maps.py](generate_maps.py) 支持圆角矩形、椭圆、直角矩形和开放交叉口的 8 字形地图。
 不需要 ROS；使用普通 `python`，预览图需要已安装的 Matplotlib。
 以下命令在 `Gazebo_simulation` 目录执行：
 
@@ -11,11 +11,11 @@
 python tools/generate_maps.py
 
 # 换种子生成另一批；不同批次使用不同输出目录。
-python tools/generate_maps.py --count 20 --seed 123 --output-dir assets/worlds/batch_123
+python tools/generate_maps.py --count 20 --seed 123 --output-dir assets/worlds/simple/batch_123
 
 # 固定尺寸，批量改变圆角半径。
 python tools/generate_maps.py --templates rounded_rectangle --count 10 \
-  --width 2.52 --height 3.64 --road-width 0.38 --output-dir assets/worlds/rounded_batch
+  --width 2.52 --height 3.64 --road-width 0.38 --output-dir assets/worlds/simple/rounded_batch
 ```
 
 默认参数全部位于脚本顶部的大写常量区：数量、模板、种子、输出目录、长宽范围、
@@ -38,22 +38,22 @@ python tools/generate_maps.py --templates rounded_rectangle --count 10 \
 - `.png` / `.pdf`：俯视预览；橙色编号箭头表示训练出生点和朝向。
 
 同一输出目录再次生成会覆盖同名文件，因此需要保留不同批次时请换输出目录。
-生成地图及 JSON 默认位于 `assets/worlds/generated/`，不覆盖手绘地图。
-PNG/PDF 默认位于 `results/maps/<地图输出目录名>/`，例如 `results/maps/generated/`。
+生成地图及 JSON 默认位于 `assets/worlds/simple/`，不覆盖手绘地图。
+PNG/PDF 默认位于 `results/maps/<地图输出目录名>/`，例如 `results/maps/simple/`。
 顶部 `DEFAULT_PREVIEW_DIR` 配置预览根目录；`--preview-dir` 可指定本批预览目录。
 若地图输出目录的末级名称相同，请用 `--preview-dir` 区分结果。
 训练和评估直接指定地图即可自动读取同名 JSON：
 
 ```bash
-python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
-python rl_training/lidar/train.py --world assets/worlds/generated/ellipse_002.sdf
+python rl_training/privileged/train.py --world assets/worlds/simple/rounded_rectangle_001.sdf
+python rl_training/lidar/train.py --world assets/worlds/simple/ellipse_002.sdf
 ```
 
 仿真环境已加载时，可以直接预览新地图；手动启动默认使用该地图的第一个训练出生点：
 
 ```bash
 ros2 launch my_gazebo_launch train_world.launch.py \
-  world:=assets/worlds/generated/ellipse_002.sdf
+  world:=assets/worlds/simple/ellipse_002.sdf
 ```
 
 不同地图目前按一次运行一张选择，并行车在该地图的不同起点训练。
@@ -70,7 +70,7 @@ ros2 launch my_gazebo_launch train_world.launch.py \
 ```bash
 # 另存一份，便于检查
 python tools/adjust_wall_height.py \
-  --world assets/worlds/train_world3.sdf --height 0.4 \
+  --world assets/worlds/simple/train_world3.sdf --height 0.4 \
   --output /tmp/train_world_height_04.sdf
 
 # 省略 --output 时修改输入文件
@@ -81,3 +81,16 @@ python tools/adjust_wall_height.py --height 0.4
 不是通用 SDF 坐标变换工具；带有额外高度偏移或倾斜的墙体需要单独核对。
 从脚本启动到另存都不需要 ROS。修改地图后按 [仿真说明](../docs/simulation.md) 重新加载，
 RL 结果须对应实际测试过的地图。
+
+## 直角矩形与 8 字形
+
+```bash
+python tools/generate_maps.py --templates rectangle figure_eight --count 2
+```
+
+输出 `assets/worlds/simple/rectangle_001.sdf` 和 `figure_eight_002.sdf`，
+同目录配套 JSON；PNG/PDF 位于 `results/maps/simple/`。
+直角矩形保留真正的 90 度拐角；8 字形中心为平面开放交叉口，无桥梁。
+净宽仍为 0.35～0.40 m（交叉口更宽），墙高 0.3 m，自动调用降墙高工具。
+窄直角弯需要重新验证车辆转弯能力；当前奖励不约束 8 字路线，车辆可能只绕单圈。
+`assets/worlds/complex/` 预留给后续复杂地图，目前为空。

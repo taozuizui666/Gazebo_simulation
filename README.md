@@ -42,7 +42,7 @@ ros2 topic pub --rate 10 /steering_label std_msgs/msg/Int32 '{data: 7}'
 
 当前标签 0～14，7 直行，0 最大左转、14 最大右转；停止发布后超时停车。
 新仿真默认目标前进速度 0.2 m/s。正式地图为
-[assets/worlds/train_world3.sdf](assets/worlds/train_world3.sdf)，车辆模板为
+[assets/worlds/simple/train_world3.sdf](assets/worlds/simple/train_world3.sdf)，车辆模板为
 [assets/urdf/simple_car1.urdf](assets/urdf/simple_car1.urdf)。
 
 安装依赖、切换地图、后台运行及控制命令见 [仿真使用说明](docs/simulation.md)。
@@ -75,7 +75,7 @@ python rl_training/privileged/train.py
 
 ```bash
 python tools/generate_maps.py --count 6
-python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
+python rl_training/privileged/train.py --world assets/worlds/simple/rounded_rectangle_001.sdf
 ```
 
 `--world` 省略时使用配置区顶部的默认地图；出生点和工作边界随地图读取同名 JSON。

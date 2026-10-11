@@ -77,16 +77,16 @@ python rl_training/lidar/train.py \
 `--world` 指定地图；省略时使用 [common/config.py](common/config.py) 顶部的 `WORLD`，
 默认值来自 `my_gazebo_launch/config.py` 的 `DEFAULT_WORLD`（当前为 `train_world3.sdf`）。
 出生点和工作边界随地图从同名 JSON 读取，不在训练代码里固定。
-原地图对应 `assets/worlds/train_world3.json`；生成地图自动带有此文件。
+原地图对应 `assets/worlds/simple/train_world3.json`；生成地图自动带有此文件。
 
 ```bash
 python tools/generate_maps.py --count 6
-python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
+python rl_training/privileged/train.py --world assets/worlds/simple/rounded_rectangle_001.sdf
 
 # 用新地图评估已保存模型，也使用新地图的出生点和边界。
 python rl_training/privileged/train.py \
   --evaluate rl_models/privileged/policies/latest_validated/model.zip \
-  --world assets/worlds/generated/ellipse_002.sdf --gui --eval-episodes 8
+  --world assets/worlds/simple/ellipse_002.sdf --gui --eval-episodes 8
 ```
 
 同名 JSON 使用 `train_spawn_poses`、`eval_spawn_poses`、`workspace_bounds` 三个字段，
@@ -94,7 +94,7 @@ python rl_training/privileged/train.py \
 设为 `null` 时关闭越界判定。命令行可覆盖：
 
 ```bash
-python rl_training/privileged/train.py --world assets/worlds/train_world3.sdf \
+python rl_training/privileged/train.py --world assets/worlds/simple/train_world3.sdf \
   --train-spawn -0.931026 -1.305602 0 0 \
   --train-spawn 0.05 -3.0 0 1.5707963267948966 \
   --eval-spawn -1.2 -4.94 0 3.141592653589793 \
@@ -123,7 +123,7 @@ python rl_training/privileged/train.py --world assets/worlds/train_world3.sdf \
 | [lidar/config.py](lidar/config.py) | 雷达模型、日志、运行文件的默认路径 |
 | [privileged/config.py](privileged/config.py) | 特权模型路径、距离场网格、覆盖范围、归一化和几何安全间距 |
 | [common/config.py](common/config.py) | 两类共用的默认地图、domain/端口、回合时限、奖励、卡住检测及 PPO 参数 |
-| `assets/worlds/地图名.json` | 该地图的训练/评估出生点、朝向和工作边界；支持命令行覆盖 |
+| `assets/worlds/simple/地图名.json`（或 `complex/`） | 该地图的训练/评估出生点、朝向和工作边界；支持命令行覆盖 |
 | [monitoring/progress_config.py](monitoring/progress_config.py) | 网页地址、端口、目录、刷新周期和统计窗口 |
 
 默认 4 个训练实例：domain 81/83/85/87、端口 11451/11453/11455/11457；

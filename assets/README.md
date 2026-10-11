@@ -6,9 +6,10 @@
 
 | 路径 | 用途 |
 | --- | --- |
-| [worlds/train_world3.sdf](worlds/train_world3.sdf) | 当前训练、评估与手动仿真的默认地图 |
-| [worlds/train_world3.json](worlds/train_world3.json) | 当前地图的训练/评估出生点和工作边界 |
-| `worlds/generated/` | 生成工具输出的 SDF 地图和同名 JSON 配置；预览位于 `../results/maps/generated/` |
+| [worlds/simple/train_world3.sdf](worlds/simple/train_world3.sdf) | 当前训练、评估与手动仿真的默认地图 |
+| [worlds/simple/train_world3.json](worlds/simple/train_world3.json) | 当前地图的训练/评估出生点和工作边界 |
+| `worlds/simple/` | 原手绘地图及全部简单地图的 SDF/JSON；预览位于 `../results/maps/simple/` |
+| `worlds/complex/` | 预留复杂地图目录 |
 | [urdf/simple_car1.urdf](urdf/simple_car1.urdf) | 当前车辆几何模板，启动时套用共享车辆参数 |
 | [models/wall/](models/wall) | `model://wall` 所需的模型描述与 SDF |
 
@@ -23,7 +24,7 @@ Gazebo 模型搜索路径；地面和光源使用本机 Gazebo 资源。
 
 ```bash
 ros2 launch my_gazebo_launch train_world.launch.py \
-  world:=assets/worlds/generated/ellipse_002.sdf
+  world:=assets/worlds/simple/ellipse_002.sdf
 ```
 
 RL 通过 `--world` 选择地图，自动读取同名 JSON 的出生点和工作边界；默认地图在

@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 
 # ===================== 可修改配置区 =====================
-DEFAULT_WORLD_FILE = Path(__file__).resolve().parents[1] / "assets/worlds/train_world3.sdf"
+DEFAULT_WORLD_FILE = Path(__file__).resolve().parents[1] / "assets/worlds/simple/train_world3.sdf"
 DEFAULT_WALL_HEIGHT_M = 0.3
 # ===================== 配置区结束 =====================
 

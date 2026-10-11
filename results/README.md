@@ -4,7 +4,7 @@
 
 | 目录 | 内容 |
 | --- | --- |
-| [maps/generated/](maps/generated/) | 正式生成地图预览、Gazebo 截图和演示评估报告 |
+| [maps/simple/](maps/simple/) | 正式生成地图预览、Gazebo 截图和演示评估报告 |
 | [maps/matched_preview/](maps/matched_preview/) | 早期临时地图的预览、截图和演示报告 |
 | [training/lidar/policies/](training/lidar/policies/) | 雷达模型各批次训练/评估图 |
 | [training/privileged/policies/](training/privileged/policies/) | 特权模型各批次训练/评估图 |

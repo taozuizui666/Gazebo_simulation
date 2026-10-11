@@ -7,7 +7,7 @@ import re
 
 # 文件和话题地址集中在这里；速度、标签、雷达参数在 vehicle_config.h 顶部。
 DEFAULT_CONFIG_HEADER = Path(__file__).with_name("vehicle_config.h")
-DEFAULT_WORLD = "assets/worlds/train_world3.sdf"  # world / --world 参数省略时使用。
+DEFAULT_WORLD = "assets/worlds/simple/train_world3.sdf"  # world / --world 参数省略时使用。
 DEFAULT_URDF = "assets/urdf/simple_car1.urdf"
 GAZEBO_MODEL_DIR = "assets/models"
 GAZEBO_SYSTEM_MODEL_DIR = Path("/usr/share/gazebo-11/models")

@@ -31,7 +31,7 @@
 
 ROS 包名仍为 `my_gazebo_launch`；共享 `vehicle_config.h`、两类 RL 入口、模型目录、
 网页服务入口的位置不变。现有命令中显式指定地图时，把 `sdf/文件名` 更新为
-`assets/worlds/文件名`。
+`assets/worlds/simple/文件名`。
 
 ## 构建文件与历史结果
 
@@ -49,7 +49,7 @@ ROS 包名仍为 `my_gazebo_launch`；共享 `vehicle_config.h`、两类 RL 入�
 
 ## 结果集中整理
 
-- `assets/worlds/` 只保留原手绘地图 `train_world3.sdf`、同名 JSON 和 `generated/` 正式生成地图。
+- `assets/worlds/simple/` 保存原手绘地图 `train_world3.sdf`、同名 JSON 及所有简单生成地图；`complex/` 预留复杂地图。
 - `assets/worlds/train.sdf` → `archive/worlds/train.sdf`。
 - 临时 `assets/worlds/matched_preview/` 的 SDF/JSON → `archive/worlds/matched_preview/`。
 - 两批地图的预览、Gazebo 截图及演示报告 → `results/maps/<批次>/`。
@@ -61,3 +61,5 @@ ROS 包名仍为 `my_gazebo_launch`；共享 `vehicle_config.h`、两类 RL 入�
 PNG 与 PDF 同目录；生成器和独立评估今后同时输出这两种格式。
 历史图片原样移动，不将 PNG 转换为伪矢量 PDF。
 权重、原始报告、训练源码快照及 Git 发布工作区保持原位；发布工作区的图片是同步缓存。
+
+所有当前入口已同步为 `assets/worlds/simple/`，旧报告与源码快照中的路径保留历史原值。

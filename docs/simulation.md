@@ -52,12 +52,12 @@ ros2 topic echo /lidar_distances
 统一使用 `train_world.launch.py`。可选择世界和初始位置：
 
 ```bash
-ros2 launch my_gazebo_launch train_world.launch.py world:=assets/worlds/generated/ellipse_002.sdf
+ros2 launch my_gazebo_launch train_world.launch.py world:=assets/worlds/simple/ellipse_002.sdf
 ```
 
 未指定 x/y/yaw 时使用所选地图同名 JSON 的第一个训练出生点。
 默认地图由 `my_gazebo_launch/config.py` 顶部的 `DEFAULT_WORLD` 决定。
-生成地图自带 JSON，可直接指定 `world:=assets/worlds/generated/ellipse_002.sdf`；
+生成地图自带 JSON，可直接指定 `world:=assets/worlds/simple/ellipse_002.sdf`；
 没有同名 JSON 的历史或自定义地图需要显式指定 x/y/yaw。
 
 默认出生点在迷宫内，持续转弯可能碰墙。单独验证轮速可在迷宫外的空旷位置启动：
