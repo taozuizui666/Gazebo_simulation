@@ -1,10 +1,19 @@
+# Python 与 ROS 构建生成文件
 __pycache__/
 *.py[cod]
 *.egg-info/
 build/
 install/
 log/
-rl_models/policies/
-rl_models/logs/
+
+# 两类训练产物留在本机，说明文件正常纳入版本管理
+rl_models/lidar/policies/
+rl_models/lidar/logs/
+rl_models/lidar/runtime/
+rl_models/privileged/policies/
+rl_models/privileged/logs/
+rl_models/privileged/runtime/
+
+# 网页快照与发布工作区
 rl_models/progress/
 rl_models/runtime/

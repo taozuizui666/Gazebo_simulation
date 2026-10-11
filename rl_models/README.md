@@ -1,170 +1,33 @@
-# RL 模型输出
+# RL 模型结果索引
 
-持续避障巡航训练为每次运行建立独立目录，避免覆盖已有模型。生成产物由
-`Gazebo_simulation/.gitignore` 排除，训练入口和配置见
-[rl_training/README.md](../rl_training/README.md)。
+模型、日志和运行记录按输入类型分开保存：
 
-## 已验证特权教师（2026-10-11）
+| 类型 | 结果与证据 | 对应代码 | 当前已验证模型 |
+| --- | --- | --- | --- |
+| 雷达输入 | [lidar/](lidar/README.md) | [rl_training/lidar/](../rl_training/lidar/README.md) | 257,276 步，0.1 m/s |
+| 特权环境场 | [privileged/](privileged/README.md) | [rl_training/privileged/](../rl_training/privileged/README.md) | 2,392,588 步，0.2 m/s |
 
-本分支使用 [latest_validated_privileged/model.zip](policies/latest_validated_privileged/model.zip)，
-指向 `validated_privileged_42588_20261011_011849/model.zip`。该 PPO 教师使用地图和
-物理真值，训练与验收均关闭雷达。输入是 17×17 局部距离场及前进速度、角速度、
-上一动作，共 292 维；网络为 `[128, 128]` MLP，输出 15 个动作标签，目标速度 0.2 m/s。
-
-共采样 53,792 步，定期评估连续 5 次完成各 3 段、每段 150 秒的巡航。停止继续更新
-权重后，选用 42,588 步的固定检查点进行下列独立长时验收；其他检查点仍保留。
-训练曲线标出选定权重的位置，随机探索回合与确定性策略评估分别统计。
-
-| 独立验收项目 | 实测结果 |
-| --- | --- |
-| 世界 | `train_world3.sdf`，静态碰撞地图，雷达传感器关闭 |
-| 起点与方向 | 8 种位置/朝向，覆盖两个行驶方向 |
-| 扰动 | x/y 各 ±0.06 m、朝向 ±15°；种子 20261012 |
-| 每段时长 | 600 秒仿真时间，达到时限后复位 |
-| 累计距离与时间 | 959.84 m、4,800 秒（80 分钟，8 段之和） |
-| 碰撞 / 卡住 / 局部绕圈 / 低速 / 越界 | 均为 0 |
-| 实际速度 | 每段平均 0.199934～0.200064 m/s；24,000 次采样范围 0.199600～0.200817 m/s |
-| 速度合规率 | 每段 100%，合规范围为目标速度 ±20% |
-| 道路覆盖 | 每段约 11.03～11.06 圈，覆盖完整环形道路 |
-| 保守间距估算 | 以半径 0.085 m 的车体圆盘估算，采样位姿的最小墙间距约 0.0253 m |
-
-物理碰撞检查覆盖每个物理步；间距估算只用于解释采样轨迹，不能代替物理接触检查。
-结果适用于上述地图、车辆配置、起点扰动和测试时长，尚未验证新地图或实车迁移。
-这份教师模型在仿真中提供动作，未来的雷达学生还需要单独训练与验证。
-
-- [验收汇总](policies/latest_validated_privileged/validation_summary.json)与[逐段报告](policies/latest_validated_privileged/validation_1/evaluation.json)
-- [轨迹和实际速度](policies/latest_validated_privileged/validation_1/trajectories.png)与[道路覆盖/间距统计](policies/latest_validated_privileged/validation_1/trajectory_metrics.json)
-- [训练曲线](policies/latest_validated_privileged/training_curve.png)与[曲线数据](policies/latest_validated_privileged/training_curve_data.json)
-
-模型 SHA-256：`e7ca63ac56eaa71e8ccbedfb383ab2f6994761889c6622c7f2d6e9a24a731c16`。
-配置、源码快照及配套奖励归一化状态也在同目录，支持审计和续训。模型保存在本机，
-手机页面同步统计结果与验收图片；本阶段没有采集随机森林数据或覆盖实车头文件。
-
-在 `Gazebo_simulation` 目录观看教师驾驶：
-
-```bash
-source /opt/ros/humble/setup.bash
-source /usr/share/gazebo/setup.bash
-source install/setup.bash
-python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated_privileged/model.zip \
-  --config-header rl_models/policies/latest_validated_privileged/vehicle_config.h \
-  --gui --eval-episodes 1 --episode-steps 1500
-```
-
-自动识别特权模式，雷达保持关闭；以正常仿真时间观看 300 秒，结束后关闭窗口。
-
-## 雷达基线模型（2026-10-10）
-
-原有雷达基线为 [latest_validated/model.zip](policies/latest_validated/model.zip)，当前指向
-`validated_257276_20261010_022505/model.zip`。PPO 累计采样 **257,276 步**，
-策略仅接收 200 列雷达距离，输出 0～14 标签；7 为直行，目标前进速度为 0.1 m/s。
-从 3 万步到 25 万步连续 15 次定期评估均完成巡航，近期奖励趋于稳定，随后主动
-停止续训，对最终固定权重开展了更长的独立验证。原训练目录中的 `stopped` 表示
-这次主动停止，具体原因保存在 `run_config.json`。
-
-| 最终模型独立验收 | 实测结果 |
-| --- | --- |
-| 世界与场景 | `train_world3.sdf`；8 种位置/方向，每种使用两组随机扰动，共 16 段 |
-| 起点扰动 | x、y 各在 ±0.06 m 内，朝向在 ±15° 内；种子 20261011 |
-| 单段连续时长 | 每段 1,000 秒仿真时间（16 分 40 秒） |
-| 累计测试 | 16,000 秒（4 小时 26 分 40 秒）、1,599.95 m |
-| 碰撞 / 卡住 / 局部绕圈 / 低速 / 越界 | 全部为 0 |
-| 速度合规率 | 每段均为 100%（目标速度 ±20%） |
-| 实际动作采样速度范围 | 0.099723～0.100201 m/s，共 80,000 次采样 |
-| 每段平均速度 | 0.099968～0.100031 m/s |
-| 完整道路巡航 | 每段约 9.32～9.41 圈，轨迹覆盖整条环形道路 |
-
-这是 16 段独立巡航的累计时长；每段测试前恢复对应起点，复位等待未计入时长。
-这组实测覆盖记录中的静态地图、车辆参数和扫描噪声；更换地图、车速或实车参数后
-需重新验证。0.1 m/s 的轮速目标由共享动作接口给出，RL 学习转向；验收检查实际
-运动速度与物理接触，不只检查下发的目标指令。
-
-- [验收汇总](policies/latest_validated/validation_summary.json)及[逐段报告](policies/latest_validated/validation_1/evaluation.json)
-- [轨迹与实测速度](policies/latest_validated/validation_1/trajectories.png)
-- [训练曲线](policies/latest_validated/training_curve.png)及[曲线数据](policies/latest_validated/training_curve_data.json)
-- [轨迹统计](policies/latest_validated/trajectory_metrics.json)、配套配置、源码快照与续训状态均在同目录
-
-另外保留了 [11 万步备选模型](policies/validated_110000_20261010_015928/model.zip)：
-8 段 × 2,000 秒，每段约 18.6 圈，累计约 1.6 km，零失败。当前固定入口使用上面的
-257,276 步模型。图形界面已完成 20 秒运行检查；ROS 构建、依赖和模型散列校验通过。
-
-在本目录的上一级 `Gazebo_simulation` 中观看最终模型：
-
-```bash
-source /opt/ros/humble/setup.bash
-source /usr/share/gazebo/setup.bash
-source install/setup.bash
-python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated/model.zip \
-  --config-header rl_models/policies/latest_validated/vehicle_config.h \
-  --gui --eval-episodes 1 --episode-steps 1500
-```
-
-这会使用该基线保存的 0.1 m/s 配置，以正常仿真时间运行 300 秒；当前共享配置已是
-0.2 m/s，因此验证旧模型需要显式指定其配套头文件。结束后保存报告并关闭本次窗口。
-模型文件和日志仅保存在本机，没有上传。手机进度页仅同步筛选后的统计数据和验收图片。
-未生成随机森林训练集，也未修改实车模型头文件。
-
-## 输出目录
+每一类都包含：
 
 ```text
-rl_models/
-├── policies/
-│   ├── PPO_privileged_时间_随机后缀/ # 特权教师；雷达基线为 PPO_cruise_*
-│   │   ├── run_config.json           # 车辆配置、训练参数、运行状态、实际步数
-│   │   ├── vehicle_config.h          # 本次共享宏快照
-│   │   ├── training_config.py        # 本次训练配置快照
-│   │   ├── training_status.json      # 约 5 秒更新，结束时补写最终状态
-│   │   ├── vecnormalize.pkl          # 最终奖励归一化状态，续训需要
-│   │   ├── best_vecnormalize.pkl     # 最佳评估模型对应的归一化状态
-│   │   ├── source_snapshot/          # 此次训练的 Python/C++ 源码与散列
-│   │   ├── best_model.zip            # 独立评估平均奖励最佳的模型
-│   │   ├── rl_policy_final.zip       # 正常完成的最终模型
-│   │   ├── rl_policy_interrupted.zip # 中断/失败时尝试保存；不一定存在
-│   │   ├── rl_policy_*_steps.zip     # 定期检查点
-│   │   ├── evaluation/
-│   │   │   └── evaluations.npz       # 训练期间独立评估的奖励、长度、成功标记
-│   │   ├── worker_*/                 # Gazebo/ROS/回合日志与逐步 live_state.json
-│   │   └── evaluation_server/        # 独立评估仿真日志
-│   ├── evaluation_时间_后缀/
-│   │   ├── evaluation.json           # 单独评估的逐集结果及是否达标
-│   │   ├── evaluation_status.json    # 已完成段数、逐段失败信息、评估状态
-│   │   ├── live_state.json           # 当前这一段的仿真时间、速度与距离
-│   │   ├── trajectories.npz          # 逐步轨迹、速度、动作和奖励
-│   │   └── trajectories.png          # 道路轨迹与实测速度图
-│   ├── validated_步数_时间/
-│   │   ├── model.zip                 # 与通过的长时验证报告匹配的固定权重
-│   │   ├── validation_summary.json   # 验证范围、累计距离、速度、失败次数
-│   │   ├── validation_*/             # 完整验证报告与轨迹
-│   │   └── ...                       # 配套配置、源码和 vecnormalize.pkl
-│   ├── latest_validated_privileged -> validated_privileged_步数_时间/ # 合格特权教师
-│   ├── latest_validated -> validated_步数_时间/  # 合格雷达基线
-│   └── ...                          # 修正前的旧实验仍保留
-├── logs/
-│   └── PPO_privileged_时间_随机后缀_1/  # TensorBoard 事件，雷达基线为 PPO_cruise_*
-├── progress/                      # 手机页面、白名单 data.json 和验收图片
-├── runtime/publisher/             # 独立的 GitHub 页面/进度发布工作区
-└── README.md
+lidar/ 或 privileged/
+├── README.md
+├── policies/           模型检查点、独立评估、已验证模型
+│   └── latest_validated -> 本类最近通过验收的模型
+├── logs/               TensorBoard 与运行日志
+└── runtime/            本类临时运行文件
 ```
 
-`.zip` 是 Stable-Baselines3 的策略网络，包含权重、超参数和观测/动作空间；
-共享硬件配置另存于同目录 `run_config.json`，评估时一并校验，请保留在一起。
-旧实验没有这些配置记录，碰撞、复位和评估逻辑也不同，不能直接比较为新训练成果。
+训练权重、日志及运行文件留在本机，由 Git 忽略。说明文件可提交。
+普通训练不会覆盖已验证模型，只有独立长时验收达标后才能更新固定入口。
 
-在 `Gazebo_simulation` 内加载 ROS 和本工程环境后执行：
+共用网页快照位于 `progress/`，GitHub 发布工作区位于 `runtime/publisher/`。
+页面顶部可以切换模型类别，两类的统计、验收和图片分别展示。
 
-```bash
-python3 rl_training/train_rl.py \
-  --evaluate rl_models/policies/latest_validated/model.zip \
-  --config-header rl_models/policies/latest_validated/vehicle_config.h \
-  --eval-episodes 8 --episode-steps 3000
-```
+2026-10-11 分类迁移保留了历史 `policies/`、`logs/` 文件的原始内容，
+包括权重、车辆参数、报告及源码快照。旧 JSON 中的绝对路径是历史来源记录；
+按最长目录前缀查本机 `runtime/layout_migration.json` 可找到新位置。
+旧源码快照不作为当前入口运行。
 
-报告中的正常时间截断表示完成设定时长的巡航；碰撞、卡住、持续低速、小范围
-反复绕圈或越界表示失败。上述命令每集最多运行 600 秒仿真时间。
-训练时“最佳”指评估奖励最高，仍需结合碰撞率、距离和持续时间判断质量。
-`latest_validated` 只由独立验证通过后的冻结步骤更新，普通训练不会覆盖这个入口。
-目录根部旧的 `best_model.zip` 来自之前的实验，当前应使用上述已验证模型入口。
-
-RL 模型不直接烧录到 Teensy。后续由策略采集与实车格式一致的雷达/标签数据，
-再通过 `software/MLcode/train_model.py` 训练并导出随机森林头文件。
-自动采集 CSV 尚未实现，本目录不提供 `collect_data.py` 或 `eval_model.py`。
+当前训练、续训、评估命令见 [训练说明](../rl_training/README.md)。
+两类已有验收均针对记录中的地图与车辆条件，尚不能作为新地图或实车泛化保证。

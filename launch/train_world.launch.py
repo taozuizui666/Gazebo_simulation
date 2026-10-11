@@ -19,7 +19,7 @@ from launch.conditions import IfCondition
 from my_gazebo_launch.config import (
     DEFAULT_CONFIG_HEADER, DEFAULT_ENTITY_NAME, DEFAULT_SPAWN_X, DEFAULT_SPAWN_Y,
     DEFAULT_SPAWN_Z, DEFAULT_SPAWN_YAW, DEFAULT_URDF, DEFAULT_WORLD,
-    GAZEBO_SYSTEM_MODEL_DIR, SIM_CLOCK_PUBLISH_HZ, load_config,
+    GAZEBO_MODEL_DIR, GAZEBO_SYSTEM_MODEL_DIR, SIM_CLOCK_PUBLISH_HZ, load_config,
 )
 from my_gazebo_launch.robot_description import render_robot, render_world
 
@@ -40,7 +40,7 @@ def _start(context):
         raise FileNotFoundError(f"World file not found: {world}")
     enable_lidar = IfCondition(LaunchConfiguration("enable_lidar")).evaluate(context)
     description = render_robot(share / DEFAULT_URDF, config, enable_lidar=enable_lidar)
-    models = [str(share / "models"), str(share / "sdf")]
+    models = [str(share / GAZEBO_MODEL_DIR)]
     if GAZEBO_SYSTEM_MODEL_DIR.is_dir():
         models.append(str(GAZEBO_SYSTEM_MODEL_DIR))
     if os.environ.get("GAZEBO_MODEL_PATH"):
