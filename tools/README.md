@@ -2,7 +2,7 @@
 
 ## 批量生成训练地图
 
-[generate_maps.py](generate_maps.py) 支持圆角矩形、椭圆、直角矩形和开放交叉口的 8 字形地图。
+[generate_maps.py](generate_maps.py) 支持圆角矩形、椭圆、直角矩形、开放交叉口的 8 字形及 T 字死胡同地图。
 不需要 ROS；使用普通 `python`，预览图需要已安装的 Matplotlib。
 以下命令在 `Gazebo_simulation` 目录执行：
 
@@ -94,3 +94,18 @@ python tools/generate_maps.py --templates rectangle figure_eight --count 2
 净宽仍为 0.35～0.40 m（交叉口更宽），墙高 0.3 m，自动调用降墙高工具。
 窄直角弯需要重新验证车辆转弯能力；当前奖励不约束 8 字路线，车辆可能只绕单圈。
 `assets/worlds/complex/` 预留给后续复杂地图，目前为空。
+
+## 死胡同地图
+
+```bash
+python tools/generate_maps.py --templates dead_end --count 1 --width 2.8 --height 3.6 --road-width 0.38
+ros2 launch my_gazebo_launch train_world.launch.py world:=assets/worlds/simple/dead_end_001.sdf
+```
+
+`dead_end_001.sdf/.json` 与其他简单地图一起保存在 `assets/worlds/simple/`，
+PNG/PDF 位于 `results/maps/simple/`。T 字左右及下方三个末端均封闭，墙高 0.3 m。
+三个训练出生点位于不同深度并面向封闭端，第四个位于横向通道；评估还包含反向朝向。
+当前车体几何的旋转包络直径约 0.158 m，居中时可放入 0.38 m 净宽通道。
+这是几何空间检查，尚未验证原地旋转控制或 RL 脱困策略。
+后续需添加原地旋转动作、调整低速/卡住判定及脱困奖励；当前训练仍按原有巡航规则运行。
+未来脱困成功应按车辆离开某条死胡同支路、返回 T 字交汇处判定，而不是驶出地图边界。

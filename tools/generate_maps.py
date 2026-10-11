@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""批量生成静态 box 环形道路、地图配置和俯视预览；无需 ROS。"""
+"""批量生成静态 box 训练地图、出生点配置和俯视预览；无需 ROS。"""
 
 import argparse
 from copy import deepcopy
@@ -147,6 +147,24 @@ def open_crossing(boxes, points, road_width):
     return result
 
 
+def dead_end_boxes(width, height, road_width):
+    """T 形通道：左右及下方三个末端均封闭。"""
+    a, b = width/2, height/2
+    offset = (road_width + WALL_THICKNESS_M)/2
+    bottom = -b - WALL_THICKNESS_M/2
+    segments = [((-a, b+offset), (a, b+offset)),
+                ((-a, b-offset), (-offset, b-offset)),
+                ((offset, b-offset), (a, b-offset)),
+                ((-offset, bottom), (-offset, b-offset)),
+                ((offset, bottom), (offset, b-offset)),
+                ((-offset, bottom), (offset, bottom)),
+                ((-a, b-offset), (-a, b+offset)),
+                ((a, b-offset), (a, b+offset))]
+    return [((x1+x2)/2, (y1+y2)/2,
+             math.hypot(x2-x1, y2-y1)+WALL_THICKNESS_M, math.atan2(y2-y1, x2-x1))
+            for (x1, y1), (x2, y2) in segments]
+
+
 def wall_polygons(boxes):
     polygons = []
     for x, y, length, yaw in boxes:
@@ -200,6 +218,11 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
         for t in (math.pi/4, 3*math.pi/4, 5*math.pi/4, 7*math.pi/4):
             forward.append((a*math.sin(2*t), b*math.sin(t), 0.,
                             math.atan2(b*math.cos(t), 2*a*math.cos(2*t))))
+    if template == "dead_end":
+        forward = [(0., -b+road_width, 0., -math.pi/2),
+                   (0., -b+height*.35, 0., -math.pi/2),
+                   (0., -b+height*.65, 0., -math.pi/2),
+                   (-a/2, b, 0., 0.)]
     reverse = [(x, y, z, math.atan2(math.sin(yaw+math.pi), math.cos(yaw+math.pi)))
                for x, y, z, yaw in forward]
     vertices = [point for polygon in wall_polygons(boxes) for point in polygon]
@@ -209,7 +232,7 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
         "parameters": {"width_m": width, "height_m": height, "road_width_m": road_width,
                        "corner_radius_m": radius if template == "rounded_rectangle" else None,
                        "wall_height_m": WALL_HEIGHT_M, "wall_thickness_m": WALL_THICKNESS_M},
-        "train_spawn_poses": [forward[0], reverse[1], forward[2], reverse[3]],
+        "train_spawn_poses": forward if template == "dead_end" else [forward[0], reverse[1], forward[2], reverse[3]],
         "eval_spawn_poses": forward + reverse,
         "workspace_bounds": [min(xs)-WORKSPACE_PADDING_M, max(xs)+WORKSPACE_PADDING_M,
                              min(ys)-WORKSPACE_PADDING_M, max(ys)+WORKSPACE_PADDING_M],
@@ -231,7 +254,7 @@ def draw_preview(axis, boxes, settings):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=DEFAULT_MAP_COUNT)
-    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "figure_eight"),
+    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "figure_eight", "dead_end"),
                         default=DEFAULT_TEMPLATES)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -273,10 +296,15 @@ def main():
                 curvature = abs(dx*ddy-dy*ddx) / (dx*dx+dy*dy)**1.5
                 if offset*curvature >= 1:
                     parser.error("8 字弯道过窄；请增大地图尺寸或减小道路宽度。")
-        points = centerline(template, width, height, radius)
-        boxes = wall_boxes(points, road_width)
-        if template == "figure_eight":
-            boxes = open_crossing(boxes, points, road_width)
+        if template == "dead_end":
+            if width <= 4*offset or height <= 3*road_width:
+                parser.error("死胡同地图过小；宽度须大于 2×(道路净宽+墙厚)，高度须大于三倍道路净宽。")
+            boxes = dead_end_boxes(width, height, road_width)
+        else:
+            points = centerline(template, width, height, radius)
+            boxes = wall_boxes(points, road_width)
+            if template == "figure_eight":
+                boxes = open_crossing(boxes, points, road_width)
         name = f"{template}_{index+1:03d}"
         settings = map_settings(template, width, height, road_width, radius, args.seed, boxes)
         maps.append((name, boxes, settings))
