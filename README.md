@@ -48,6 +48,16 @@ ros2 topic pub --rate 10 /steering_label std_msgs/msg/Int32 '{data: 7}'
 安装依赖、切换地图、后台运行及控制命令见 [仿真使用说明](docs/simulation.md)。
 轮速公式、实车 PID 接口、雷达列格式及标定范围见 [车辆与雷达说明](docs/vehicle_and_lidar.md)。
 
+## 多地图训练入口
+
+```bash
+python rl_training/privileged/train_multi_map.py --check  # 仅检查配置
+python rl_training/privileged/train_multi_map.py          # 开始联合训练
+```
+
+先加载上面的运行环境。并行数量、控制步长、地图列表、出生点扰动、PPO 参数和时间预算
+统一在 `rl_training/privileged/train_multi_map.py` 顶部修改，详见 [多地图训练说明](rl_training/privileged/README.md#多地图联合训练)。
+
 ## 两类 RL
 
 | 模型 | 代码 | 已验证结果 |

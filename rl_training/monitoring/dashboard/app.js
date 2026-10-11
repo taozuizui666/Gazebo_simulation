@@ -97,12 +97,15 @@ function renderOverview(r) {
   const selectedEvaluations=[...evaluations()].sort((a,b)=>Number(b.is_running)-Number(a.is_running)).slice(0,2);
   $('evaluation-section').hidden=!selectedEvaluations.length;
   $('evaluation-cards').innerHTML=selectedEvaluations.map(e=>`<div class="card"><div class="live-head"><h3>${e.is_running ? '固定权重独立评估中' : '评估：'+h(statusNames[e.status] || e.status)}</h3>${badge(`${e.completed_episodes}/${e.total_episodes} 段`,e.is_running || e.passed?'':'warn')}</div><p class="caption">模型 ${h((e.model_sha256 || '').slice(0,12))} · ${e.stats.failure_count} 次失败 · 正常完成 ${e.stats.counts.time_limit} 段</p>${e.live ? `<div class="live-duration">${h(duration(e.live.sim_duration_sec))}</div><p class="caption">${e.is_running?'当前这一段':'最后一段记录'} · ${n(e.live.distance_m,2)} m · ${n(e.live.speed_mps,4)} m/s</p>` : '<p class="caption">尚无逐步记录</p>'}<p class="caption">${['collision','stuck'].map(k=>h(reasonNames[k])+': '+(e.stats.failures[k].count ? n(e.stats.failures[k].count)+' 次，平均 '+h(duration(e.stats.failures[k].mean_sec))+' 时发生' : '尚未观察到')).join('<br>')}</p></div>`).join('');
+  const maps=r?.map_evaluation || [];
+  $('map-evaluation-section').hidden=!maps.length;
+  $('map-evaluation-cards').innerHTML=maps.map(m=>`<article class="card"><h3>${h(m.world)}</h3><p class="caption">${m.stats.count ? '训练 '+n(m.training_steps)+' 步时评估 · '+h(date(m.updated_at)) : '等待首次评估'}</p><div class="live-duration">${pct(m.stats.completion_rate)}</div><p>完成率 · ${n(m.stats.count)} 回合 · 均速 ${n(m.stats.mean_speed_mps,4)} m/s</p><p class="caption">最长观测 ${h(duration(m.stats.longest_observed_sec))} · 总失败 ${n(m.stats.failure_count)} 次<br>${['collision','stuck','looping','slow','out_of_bounds'].map(k=>h(reasonNames[k])+': '+(m.stats.failures[k].count ? n(m.stats.failures[k].count)+' 次，最早 '+h(duration(m.stats.failures[k].min_sec))+'，平均 '+h(duration(m.stats.failures[k].mean_sec)) : '尚未观察到')).join('<br>')}</p></article>`).join('');
   $('validation-card').innerHTML=model ? `<div class="validation-head"><h3>${h(modeName(model.observation_mode))} · ${n(model.steps)} 步</h3>${badge(model.verified?'散列与报告匹配':'权重或报告不匹配',model.verified?'':'danger')}</div><div class="validation-value">${n(model.stats.failure_count)} 次失败<span>/ ${model.stats.count} 段独立验收</span></div><p class="caption">最短单段 ${h(duration(model.min_completed_sec))} · 平均速度 ${n(model.min_mean_speed_mps,5)}～${n(model.max_mean_speed_mps,5)} m/s</p><div class="validation-foot"><span>累计 ${n(model.stats.total_distance_m,1)} m</span><span>累计仿真 ${h(duration(model.stats.total_sim_sec))}</span><span>最低速度合规率 ${pct(model.min_speed_compliance)}</span></div><p class="caption">独立验收与上面的随机探索训练分开统计；累计时间是多段之和。</p>` : '<div class="empty">还没有已冻结的验证模型。训练检查点不会自动当作通过验收。</div>';
 }
 
 function liveCard(w) {
   const phases={starting:'启动中',resetting:'正在复位',ready:'等待动作',driving:'巡航中',episode_finished:'回合结束',closed:'已关闭',error:'异常'};
-  return `<article class="card live-card"><div class="live-head"><strong>${h(workerName(w.worker))}</strong>${badge(fresh(w.updated_at)?(phases[w.phase]||w.phase):'最后记录','muted')}</div><div class="live-duration">${h(duration(w.sim_duration_sec))}</div><div class="live-details"><span>${n(w.distance_m,2)} m</span><span>${n(w.speed_mps,4)} m/s</span></div><p class="caption">第 ${n(w.episode_number)} 回合 · 标签 ${n(w.action)}<br>本段时限 ${h(duration(w.max_episode_sim_sec))}</p></article>`;
+  return `<article class="card live-card"><div class="live-head"><strong>${h(workerName(w.worker))}</strong>${badge(fresh(w.updated_at)?(phases[w.phase]||w.phase):'最后记录','muted')}</div><div class="live-duration">${h(duration(w.sim_duration_sec))}</div><div class="live-details"><span>${n(w.distance_m,2)} m</span><span>${n(w.speed_mps,4)} m/s</span></div><p class="caption">${w.world ? h(w.world)+'<br>出生点 #'+n((w.spawn_index ?? 0)+1)+' · ' : ''}第 ${n(w.episode_number)} 回合 · 标签 ${n(w.action)}<br>本段时限 ${h(duration(w.max_episode_sim_sec))}</p></article>`;
 }
 
 function renderChart(r) {
@@ -137,7 +140,7 @@ function renderEpisodes(r){
   const entries=state.episodeSource==='validated' ? [...(validatedModel()?.episodes || [])].reverse() : (r?.episodes || []);
   const filtered=entries.filter(e=>state.reason==='all' || (state.reason==='failure' ? e.reason!=='time_limit' : e.reason===state.reason));
   $('episode-summary').textContent=`${state.episodeSource==='validated'?'已验证模型的独立验收':'选中训练批次的近期探索回合'} · 符合筛选 ${filtered.length} 段`;
-  $('episode-list').innerHTML=filtered.slice(0,state.limit).map(e=>`<article class="episode"><header>${badge(reasonNames[e.reason],e.reason==='time_limit'?'':e.reason==='collision'?'danger':'warn')}<span class="caption">${h(workerName(e.worker))} · #${n(e.number)}</span></header><div class="episode-time">${e.reason==='time_limit'?'≥ ':''}${h(duration(e.sim_duration_sec))}</div><p>${e.reason==='time_limit'?'达到测试时限，尚未发生失败':'该失败发生在本回合上述时间'} · ${n(e.distance_m,2)} m</p><p>均速 ${n(e.mean_speed_mps,4)} m/s · 速度合规 ${pct(e.speed_compliance)}${e.ended_at?' · '+h(date(e.ended_at)):''}</p></article>`).join('') || '<div class="card empty">没有符合条件的记录。</div>';
+  $('episode-list').innerHTML=filtered.slice(0,state.limit).map(e=>`<article class="episode"><header>${badge(reasonNames[e.reason],e.reason==='time_limit'?'':e.reason==='collision'?'danger':'warn')}<span class="caption">${h(e.world || workerName(e.worker))} · #${n(e.number)}</span></header><div class="episode-time">${e.reason==='time_limit'?'≥ ':''}${h(duration(e.sim_duration_sec))}</div><p>${e.reason==='time_limit'?'达到测试时限，尚未发生失败':'该失败发生在本回合上述时间'} · ${n(e.distance_m,2)} m</p><p>均速 ${n(e.mean_speed_mps,4)} m/s · 速度合规 ${pct(e.speed_compliance)}${e.ended_at?' · '+h(date(e.ended_at)):''}</p></article>`).join('') || '<div class="card empty">没有符合条件的记录。</div>';
   $('more-episodes').hidden=filtered.length<=state.limit;
 }
 
@@ -153,7 +156,7 @@ function renderModel(r){
   ]) : '<div class="empty">完成独立长时验证并冻结模型后显示参数。</div>';
   const rp=r?.ppo,env=r?.environment;
   $('run-details').innerHTML=r ? detailList([
-    ['批次',r.id],['观测模式',modeName(r.observation_mode)],['输入维度',r.observation_spec?.dimension || r.vehicle?.lidar_point_count],['状态',statusNames[r.status]||r.status],['地图',r.world],['并行训练车',r.num_envs],
+    ['批次',r.id],['观测模式',modeName(r.observation_mode)],['输入维度',r.observation_spec?.dimension || r.vehicle?.lidar_point_count],['状态',statusNames[r.status]||r.status],['训练地图',r.train_worlds?.length?r.train_worlds.join('、'):r.world],['评估地图',(r.eval_worlds||[]).join('、')||r.world],['并行训练车',r.num_envs],
     ['开始 / 结束',date(r.started_at)+' / '+date(r.ended_at)],['仿真控制步长',n(env?.step_sim_sec,3)+' 秒'],
     ['训练时间预算',duration(r.time_budget_sec)],['预计结束训练',date(r.training_deadline,true)],
     ['单回合时限',duration(r.episode_limit_sec)],['卡住窗口',duration(env?.stuck_window_sec)],

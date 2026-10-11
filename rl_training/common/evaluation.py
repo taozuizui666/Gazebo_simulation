@@ -119,7 +119,7 @@ def evaluate_model(args):
         raise ValueError("模型观测配置与当前距离场/雷达定义不一致。")
     if model.observation_space.shape != (spec["dimension"],) or model.action_space.n != vehicle.label_count:
         raise ValueError("模型输入/动作空间与共享配置不同。")
-    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps,
+    settings = replace(config.EnvironmentSettings(**saved.get("environment", {})), max_steps=args.episode_steps,
                        workspace_bounds=args.workspace_bounds).validate()
     directory = args.output_dir / f"evaluation_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
     directory.mkdir(parents=True)
@@ -137,6 +137,7 @@ def evaluate_model(args):
                              header=args.config_header, world=args.world, seed=args.seed,
                              spawn_pose=args.eval_spawns[0],
                              log_dir=directory, settings=settings, gui=args.gui,
+                             reward_settings=config.RewardSettings(**saved.get("reward", {})),
                              real_time_factor=1.0 if args.gui else 0.0, observation_mode=mode)
         if args.gui:
             # The GUI can still publish its initial pause/control messages after

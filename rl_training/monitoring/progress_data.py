@@ -82,7 +82,9 @@ def public_episode(entry, **extra):
         "mean_speed_mps": number(entry.get("mean_speed_mps", entry.get("episode_mean_speed_mps"))),
         "speed_compliance": number(entry.get("speed_compliance")),
         "reward": number(entry.get("reward", entry.get("r"))),
-        "scenario": entry.get("scenario"), **extra,
+        "scenario": entry.get("scenario"),
+        "world": Path(str(entry.get("world", ""))).name,
+        "spawn_index": number(entry.get("spawn_index")), **extra,
     }
 
 
@@ -167,7 +169,8 @@ class SnapshotBuilder:
         if not data:
             return None
         allowed = ("updated_at", "phase", "episode_number", "max_episode_sim_sec", "sim_duration_sec",
-                   "distance_m", "speed_mps", "action", "step", "reason", "speed_compliance", "error_type")
+                   "distance_m", "speed_mps", "action", "step", "reason", "speed_compliance", "error_type",
+                   "world", "spawn_index", "spawn_pose")
         return {"worker": worker, **{k: data[k] for k in allowed if k in data}}
 
     def training_run(self, path):
@@ -185,6 +188,14 @@ class SnapshotBuilder:
         workers = [s for p in sorted(path.glob("worker_*/live_state.json"))
                    if (s := self.live(p, p.parent.name))]
         periodic = self.live(path / "evaluation_server/live_state.json", "定期评估")
+        campaign = meta.get("multi_map") or {}
+        suite = self.read_json(path / "evaluation/multi_map.json")
+        suite_episodes = [e for row in suite.get("episodes", []) if (e := public_episode(row))]
+        map_evaluation = [{"world": Path(w).name,
+                           "training_steps": suite.get("training_steps"),
+                           "updated_at": suite.get("updated_at"),
+                           "stats": episode_stats([e for e in suite_episodes if e["world"] == Path(w).name])}
+                          for w in campaign.get("eval_worlds", [])]
         terminal = meta.get("status") not in ("starting", "training")
         updated = meta.get("ended_at") if terminal else max(
             [meta.get("started_at", ""), status.get("updated_at", "")]
@@ -215,8 +226,11 @@ class SnapshotBuilder:
                      + vehicle.get("sim_time_step_sec", .001))) / vehicle.get("sim_time_step_sec", .001))
                 * vehicle.get("sim_time_step_sec", .001),
             "num_envs": args.get("num_envs"), "world": Path(str(args.get("world", ""))).name,
+            "train_worlds": [Path(w).name for w in campaign.get("train_worlds", [])],
+            "eval_worlds": [Path(w).name for w in campaign.get("eval_worlds", [])],
+            "map_evaluation": map_evaluation,
             "vehicle": vehicle, "environment": environment, "ppo": meta.get("ppo", {}),
-            "seed": args.get("seed"), "device": "cpu", "rollout_steps": args.get("rollout_steps"),
+            "seed": args.get("seed"), "device": args.get("device", "cpu"), "rollout_steps": args.get("rollout_steps"),
             "error_type": "TrainingError" if meta.get("error") else None,
             "recent": episode_stats(rows), "episodes": list(reversed(rows)), "workers": workers,
             "periodic_evaluation": periodic, "curves": self.curves(path.name, meta.get("observation_mode", "lidar")),

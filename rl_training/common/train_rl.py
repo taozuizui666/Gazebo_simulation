@@ -8,6 +8,7 @@ from datetime import datetime
 from functools import partial
 import hashlib
 import json
+import math
 from pathlib import Path
 import shutil
 import sys
@@ -46,7 +47,7 @@ def write_metadata(path, data):
     temporary.replace(path)
 
 
-def snapshot_sources(directory, world):
+def snapshot_sources(directory, world, extra_worlds=()):
     root = Path(__file__).resolve().parents[2]
     target = directory / "source_snapshot"
     manifest = {}
@@ -65,6 +66,11 @@ def snapshot_sources(directory, world):
     resources = [("world.sdf", world_path), ("robot.urdf", share / DEFAULT_URDF)]
     if world_path.with_suffix(".json").is_file():
         resources.append(("world.json", world_path.with_suffix(".json")))
+    for i, extra in enumerate(dict.fromkeys(extra_worlds)):
+        source = resolve_world(extra)
+        resources.append((f"worlds/{i}_{source.name}", source))
+        if source.with_suffix(".json").is_file():
+            resources.append((f"worlds/{i}_{source.stem}.json", source.with_suffix(".json")))
     for filename, source in resources:
         relative = Path("resources") / filename
         (target / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +160,15 @@ class CruiseEvalCallback(EvalCallback):
             if evaluating and self.progress:
                 self.progress.phase = "collecting"
                 self.progress.snapshot(steps=self.num_timesteps)
+        if evaluating:
+            scenarios = self.eval_env.venv.envs[0].env
+            if hasattr(scenarios, "records"):
+                report = {"training_steps": self.num_timesteps,
+                          "episodes": scenarios.records,
+                          "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()}
+                write_metadata(Path(self.best_model_save_path) / "evaluation" / "multi_map.json", report)
+                write_metadata(Path(self.best_model_save_path) / "evaluation" /
+                               f"multi_map_{self.num_timesteps}.json", report)
         if self.best_mean_reward > previous_best:
             self.training_env.save(Path(self.best_model_save_path) / "best_vecnormalize.pkl")
         return continuing
@@ -164,21 +179,37 @@ def make_env(role, args, settings, directory, rank=0):
     domain = args.train_domain + rank * 2 if role == "train" else args.eval_domain
     port = args.train_port + rank * 2 if role == "train" else args.eval_port
     env_dir = directory / (f"worker_{rank}" if role == "train" else "evaluation_server")
-    env = AicarGazeboEnv(
-        role=role, domain_id=domain, port=port,
-        header=args.config_header, world=args.world,
-        spawn_pose=args.train_spawns[rank % len(args.train_spawns)]
-                   if role == "train" else args.eval_spawns[0],
-        seed=args.seed + rank if role == "train" else args.seed + 1000,
-        log_dir=env_dir, settings=settings, observation_mode=args.observation_mode)
-    if role == "eval":
-        env = EvaluationScenarios(env, args.eval_spawns)
-    return Monitor(env, filename=str(env_dir / "episodes"), info_keywords=(
-        "termination_reason", "episode_distance_m", "episode_sim_time_sec",
-        "episode_mean_speed_mps", "speed_compliance", "is_success"))
+    kwargs = dict(role=role, domain_id=domain, port=port, header=args.config_header,
+                  seed=args.seed + rank if role == "train" else args.seed + 1000,
+                  log_dir=env_dir, settings=settings, observation_mode=args.observation_mode,
+                  reward_settings=config.RewardSettings(**getattr(args, "reward", {})))
+    campaign = getattr(args, "multi_map", None)
+    if campaign:
+        from .multi_map import MultiMapEnv
+        env = MultiMapEnv(spec=campaign, rank=rank, **kwargs)
+    else:
+        env = AicarGazeboEnv(world=args.world,
+            spawn_pose=args.train_spawns[rank % len(args.train_spawns)]
+                       if role == "train" else args.eval_spawns[0], **kwargs)
+        if role == "eval":
+            env = EvaluationScenarios(env, args.eval_spawns)
+    keywords = ("termination_reason", "episode_distance_m", "episode_sim_time_sec",
+                "episode_mean_speed_mps", "speed_compliance", "is_success")
+    return Monitor(env, filename=str(env_dir / "episodes"),
+                   info_keywords=keywords + (("world", "spawn_index", "spawn_pose") if campaign else ()))
 
 
-def run_training(args):
+
+def training_configuration(args):
+    ppo = {name: getattr(config, name) for name in (
+        "LEARNING_RATE", "BATCH_SIZE", "N_EPOCHS", "GAMMA", "GAE_LAMBDA", "CLIP_RANGE",
+        "ENTROPY_COEFF", "VALUE_COEFF", "MAX_GRAD_NORM", "POLICY_NET_ARCH")}
+    ppo.update(getattr(args, "ppo", {}))
+    campaign = getattr(args, "multi_map", None)
+    if campaign:
+        from .multi_map import load_campaign
+        load_campaign(campaign)
+        args.eval_episodes = len(campaign["eval_worlds"]) * campaign["eval_episodes_per_map"]
     if args.num_envs < 1:
         raise ValueError("num-envs 必须大于零。")
     domains = [args.train_domain + 2*i for i in range(args.num_envs)]
@@ -187,13 +218,22 @@ def run_training(args):
         raise ValueError("训练与评估必须使用不同 ROS domain 和 Gazebo port。")
     if any(d < 0 or d > 101 for d in domains + [args.eval_domain]):
         raise ValueError("为避免 DDS 端口冲突，本程序使用 ROS domain 0～101。")
-    if min(args.timesteps, args.eval_episodes, args.eval_freq, args.hours) <= 0:
+    if any(p < 1 or p > 65535 for p in ports + [args.eval_port]):
+        raise ValueError("Gazebo port 必须在 1～65535 范围内。")
+    if not all(math.isfinite(v) and v > 0 for v in
+               (args.timesteps, args.eval_episodes, args.eval_freq, args.hours)):
         raise ValueError("训练步数、评估集数、评估间隔和小时预算必须大于零。")
-    if args.rollout_steps < 2 or (args.rollout_steps * args.num_envs) % config.BATCH_SIZE:
+    if ppo["BATCH_SIZE"] < 2 or args.rollout_steps < 2 or (args.rollout_steps * args.num_envs) % ppo["BATCH_SIZE"]:
         raise ValueError("rollout-steps × num-envs 必须是 BATCH_SIZE 的整数倍。")
-    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps,
+    settings = replace(config.EnvironmentSettings(**getattr(args, "environment", {})), max_steps=args.episode_steps,
                        workspace_bounds=args.workspace_bounds).validate()
     vehicle = config.vehicle_config(args.config_header)
+    config.RewardSettings(**getattr(args, "reward", {}))
+    return ppo, campaign, settings, vehicle, domains
+
+
+def run_training(args):
+    ppo, campaign, settings, vehicle, domains = training_configuration(args)
     prefix = "PPO_privileged" if args.observation_mode == "privileged" else "PPO_cruise"
     run_id = f"{prefix}_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
     directory = args.output_dir / run_id
@@ -204,12 +244,11 @@ def run_training(args):
         "observation_spec": observation_specification(args.observation_mode, vehicle),
         "status": "starting", "requested_timesteps": args.timesteps,
         "config_header": str(args.config_header.resolve()), "vehicle": asdict(vehicle),
-        "environment": asdict(settings), "reward": asdict(config.RewardSettings()),
+        "environment": asdict(settings), "reward": asdict(config.RewardSettings(**getattr(args, "reward", {}))),
         "training_spawn_poses": args.train_spawns,
         "evaluation_spawn_poses": args.eval_spawns,
-        "ppo": {name: getattr(config, name) for name in (
-            "LEARNING_RATE", "BATCH_SIZE", "N_EPOCHS", "GAMMA", "GAE_LAMBDA", "CLIP_RANGE",
-            "ENTROPY_COEFF", "VALUE_COEFF", "MAX_GRAD_NORM", "POLICY_NET_ARCH")},
+        "ppo": ppo,
+        "multi_map": campaign,
         "observation_preprocessing": ("static world signed-distance field and exact physics state; no lidar"
                                       if args.observation_mode == "privileged" else
                                       "canonical_mm / max_mm; policy sqrt; lidar only"),
@@ -224,7 +263,8 @@ def run_training(args):
     shutil.copy2(args.config_header, directory / "vehicle_config.h")
     shutil.copy2(Path(config.__file__), directory / "training_config.py")
     shutil.copy2(Path(family_config(args.observation_mode).__file__), directory / "input_config.py")
-    snapshot_sources(directory, args.world)
+    snapshot_sources(directory, args.world,
+                     campaign["train_worlds"] + campaign["eval_worlds"] if campaign else ())
     write_metadata(directory / "run_config.json", metadata)
     print(f"巡航训练：模式 {args.observation_mode}，标签 0～{vehicle.label_count-1}，"
           f"输入 {metadata['observation_spec']['dimension']} 维，"
@@ -267,27 +307,32 @@ def run_training(args):
             training = VecNormalize.load(normalization_path, vector)
             training.training, training.norm_reward = True, True
         else:
-            training = VecNormalize(vector, norm_obs=False, norm_reward=True, gamma=config.GAMMA)
+            training = VecNormalize(vector, norm_obs=False, norm_reward=True, gamma=ppo["GAMMA"])
         evaluation = VecNormalize(
             DummyVecEnv([partial(make_env, "eval", args, settings, directory)]),
-            training=False, norm_obs=False, norm_reward=False, gamma=config.GAMMA)
-        torch.set_num_threads(config.TORCH_THREADS)
+            training=False, norm_obs=False, norm_reward=False, gamma=ppo["GAMMA"])
+        torch.set_num_threads(getattr(args, "torch_threads", config.TORCH_THREADS))
+        optimizer = dict(learning_rate=ppo["LEARNING_RATE"], n_steps=args.rollout_steps,
+                         batch_size=ppo["BATCH_SIZE"], n_epochs=ppo["N_EPOCHS"],
+                         gamma=ppo["GAMMA"], gae_lambda=ppo["GAE_LAMBDA"],
+                         clip_range=ppo["CLIP_RANGE"], ent_coef=ppo["ENTROPY_COEFF"],
+                         vf_coef=ppo["VALUE_COEFF"], max_grad_norm=ppo["MAX_GRAD_NORM"])
+        device = getattr(args, "device", config.DEVICE)
         if args.resume is not None:
-            model = load_model(args.resume, env=training, device=config.DEVICE,
-                             tensorboard_log=str(args.log_dir), n_steps=args.rollout_steps)
+            if saved.get("ppo", {}).get("POLICY_NET_ARCH") != ppo["POLICY_NET_ARCH"]:
+                raise ValueError("续训不能改变网络结构 POLICY_NET_ARCH。")
+            if saved.get("environment", {}).get("step_sim_sec", .2) != settings.step_sim_sec:
+                raise ValueError("续训请保持模型记录的 STEP_SIM_TIME_SEC。")
+            training.gamma = ppo["GAMMA"]
+            model = load_model(args.resume, env=training, device=device,
+                               tensorboard_log=str(args.log_dir), **optimizer)
             model.set_random_seed(args.seed)
         else:
-            policy_kwargs = {"net_arch": config.POLICY_NET_ARCH}
+            policy_kwargs = {"net_arch": ppo["POLICY_NET_ARCH"]}
             if args.observation_mode == "lidar":
                 policy_kwargs["features_extractor_class"] = LidarFeatures
-            model = PPO(
-                "MlpPolicy", training, learning_rate=config.LEARNING_RATE,
-                n_steps=args.rollout_steps, batch_size=config.BATCH_SIZE, n_epochs=config.N_EPOCHS,
-                gamma=config.GAMMA, gae_lambda=config.GAE_LAMBDA, clip_range=config.CLIP_RANGE,
-                ent_coef=config.ENTROPY_COEFF, vf_coef=config.VALUE_COEFF,
-                max_grad_norm=config.MAX_GRAD_NORM,
-                policy_kwargs=policy_kwargs,
-                seed=args.seed, device=config.DEVICE, verbose=1, tensorboard_log=str(args.log_dir))
+            model = PPO("MlpPolicy", training, **optimizer, policy_kwargs=policy_kwargs,
+                        seed=args.seed, device=device, verbose=1, tensorboard_log=str(args.log_dir))
         budget = CruiseMetricsCallback(directory, args.hours * 3600, model.num_timesteps)
         evaluation_callback = CruiseEvalCallback(
             evaluation, progress=budget, best_model_save_path=str(directory),
@@ -297,7 +342,7 @@ def run_training(args):
         callbacks = [
             budget,
             evaluation_callback,
-            CheckpointCallback(save_freq=max(1, config.SAVE_FREQ // args.num_envs),
+            CheckpointCallback(save_freq=max(1, getattr(args, "save_freq", config.SAVE_FREQ) // args.num_envs),
                                save_path=str(directory), name_prefix="rl_policy", save_vecnormalize=True),
         ]
         metadata["status"] = "training"

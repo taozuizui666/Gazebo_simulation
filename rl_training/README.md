@@ -25,6 +25,16 @@ source install/setup.bash
 `python -m pip install --user -r rl_training/requirements.txt`。
 训练自动创建独立的 Gazebo，无需提前启动手动仿真。
 
+## 多地图训练入口
+
+```bash
+python rl_training/privileged/train_multi_map.py --check  # 仅检查配置
+python rl_training/privileged/train_multi_map.py          # 开始联合训练
+```
+
+先加载上面的运行环境。并行数量、控制步长、地图列表、出生点扰动、PPO 参数和时间预算
+统一在 `rl_training/privileged/train_multi_map.py` 顶部修改，详见 [多地图训练说明](privileged/README.md#多地图联合训练)。
+
 ## 训练、续训与评估
 
 新训练二选一：
