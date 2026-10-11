@@ -252,6 +252,10 @@ def main():
         if publisher:
             print(f"GitHub 页面：{cfg.PAGES_URL}；数据每 {cfg.REMOTE_PUBLISH_SEC:g} 秒检查同步。", flush=True)
         while not stop.is_set():
+            refresh = args.output_dir / ".refresh"
+            if refresh.exists():
+                refresh.unlink(missing_ok=True)
+                next_publish = 0.
             data = build_local(builder, args.output_dir)
             if pending is not None and pending.done():
                 try:
@@ -276,6 +280,15 @@ def main():
     finally:
         if executor:
             executor.shutdown(wait=True)
+        if stop.is_set():
+            try:
+                data = build_local(builder, args.output_dir)
+                if publisher:
+                    publisher.publish(args.output_dir, data, deploy=args.deploy)
+                print("最终进度已同步。" if publisher else "最终本地进度已保存。", flush=True)
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+                print(f"最终进度同步失败：{error}；可稍后手动运行发布器重试。",
+                      file=sys.stderr, flush=True)
         if server:
             server.shutdown()
             server.server_close()

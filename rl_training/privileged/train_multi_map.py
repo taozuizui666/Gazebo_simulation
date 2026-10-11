@@ -14,13 +14,16 @@ TRAIN_WORLDS = [WORLD_DIR / name for name in (
 EVAL_WORLDS = [WORLD_DIR / "rounded_rectangle_005.sdf", WORLD_DIR / "ellipse_006.sdf"]
 OUTPUT_DIR = ROOT / "rl_models/privileged/policies"
 LOG_DIR = ROOT / "rl_models/privileged/logs"
+ENABLE_PROGRESS = True             # 自动启动本地手机进度页；False 不管理发布器
+PUBLISH_TO_GITHUB = True            # ENABLE_PROGRESS=True 时，同时同步 GitHub
 CONFIG_HEADER = ROOT / "my_gazebo_launch/vehicle_config.h"  # 速度/轮距仍以此为准
-RESUME_MODEL = None                 # None 从零训练；或 Path(".../best_model.zip")
+AUTO_RESUME = True                 # 优先接着 OUTPUT_DIR 中最近的多地图训练
+RESUME_MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"                 # 无自动续训历史时使用；关闭 AUTO_RESUME 可固定指定模型
 RESUME_ALLOW_VEHICLE_CHANGE = False
-NUM_TRAIN_ENVS = 4                  # 独立 Gazebo 实例，共同更新一个 PPO
+NUM_TRAIN_ENVS = 6                  # 独立 Gazebo 实例，共同更新一个 PPO
 STEP_SIM_TIME_SEC = 0.2             # 一次动作持续的仿真秒数，不是加速倍率
 EPISODES_PER_MAP = 10               # 每个 worker 完成多少回合后换地图
-MAX_STEPS_PER_EPISODE = 750         # 默认每回合最多 150 仿真秒
+MAX_STEPS_PER_EPISODE = 1000         # 默认每回合最多 200 仿真秒
 TRAIN_POSITION_JITTER_M = 0.03      # x/y 分别均匀扰动 ±此值
 TRAIN_YAW_JITTER_DEG = 10.0
 EVAL_POSITION_JITTER_M = 0.03
@@ -29,7 +32,7 @@ SPAWN_MARGIN_M = 0.01               # 车体保守半径之外的额外净空
 SPAWN_ATTEMPTS = 50                 # 采样失败明确报错，不无限重试
 SEED = 42
 TOTAL_TIMESTEPS = 10_000_000         # 所有 worker 合计采样步数
-MAX_TRAINING_HOURS = 6.0            # 与总步数任一先达到就保存退出
+MAX_TRAINING_HOURS = 4.0/6.0            # 与总步数任一先达到就保存退出
 EVAL_FREQ = 20_000                  # 合计采样步数；评估时暂不训练
 EVAL_EPISODES_PER_MAP = 8           # 按地图 JSON 的评估出生点循环，固定种子
 SAVE_FREQ = 20_000
@@ -106,13 +109,18 @@ def main():
     options = parser.parse_args()
     from rl_training.common.train_rl import run_training, training_configuration
     args = build_args()
+    from rl_training.privileged.auto_resume import resolve_resume, validate_resume
+    args.resume = resolve_resume(args, AUTO_RESUME)
+    validate_resume(args)
     _, _, _, vehicle, _ = training_configuration(args)
     for role in ("train", "eval"):
         print(f"{role}: " + ", ".join(Path(w).name for w in args.multi_map[role + "_worlds"]), flush=True)
     print(f"目标速度 {vehicle.forward_speed_mps} m/s；"
           f"{NUM_TRAIN_ENVS} 个训练实例；控制周期 {STEP_SIM_TIME_SEC} 仿真秒", flush=True)
     if not options.check:
-        run_training(args)
+        from rl_training.monitoring.training_progress import training_progress
+        with training_progress(ENABLE_PROGRESS, PUBLISH_TO_GITHUB):
+            run_training(args)
 
 
 if __name__ == "__main__":

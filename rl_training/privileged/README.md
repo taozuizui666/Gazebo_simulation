@@ -38,8 +38,30 @@ python rl_training/privileged/train_multi_map.py
 ```
 
 先按总说明加载 ROS/Gazebo 和 `install/setup.bash`。脚本管理自己的仿真，无需手动开 Gazebo。
-`--check` 只校验配置、地图和出生点净空，不启动训练。默认从零训练，设置 `RESUME_MODEL`
-可从已有权重及同目录归一化文件续训；车辆参数仍由 `CONFIG_HEADER` 指定。
+`--check` 校验配置、地图和出生点净空，并打印自动选择的续训文件，不启动训练或发布器。
+车辆参数仍由 `CONFIG_HEADER` 指定。
+
+### 自动接着上次训练
+
+```python
+AUTO_RESUME = True
+RESUME_MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"
+```
+
+开启后扫描 `OUTPUT_DIR` 中的特权多地图批次，按批次由新到旧查找：优先使用该批次的
+`rl_policy_final.zip` 或 `rl_policy_interrupted.zip`，否则按步数由高到低尝试定期检查点。
+只选择模型和对应归一化文件均能读取、输入/动作空间匹配的组合；缺失或损坏时打印原因并回退。
+没有可用多地图历史时才使用 `RESUME_MODEL`；它为 `None` 则从零训练。
+不会自动选择较早的 `best_model.zip`，也不会修改 `latest_validated`。
+
+每次启动都会新建结果目录，并重新获得本次设置的时间/步数预算。
+Ctrl+C 保存后可直接再次运行；断电或强制终止只能恢复到最后一个完整检查点，
+未保存的采样和当前车辆位置不会恢复。模型配置不兼容时明确报错，不自动改车辆或网络。
+请不要同时启动两个训练任务共享同一套输出目录及仿真端口。
+
+要固定从某个模型开始，设置 `AUTO_RESUME=False` 并填写 `RESUME_MODEL`；
+要完全重新训练，设置 `AUTO_RESUME=False`、`RESUME_MODEL=None`。
+扫描范围是 `OUTPUT_DIR`，需要独立实验时可更换此目录，或关闭自动续训。
 
 | 配置 | 默认行为 |
 | --- | --- |
@@ -76,7 +98,21 @@ Monitor 出生点记录、模型和归一化状态。`evaluation/multi_map.json`
 `best_model.zip` 仍按等回合数的跨地图平均奖励选择，查看逐地图结果后还需在额外未参与选模
 的地图长时验收；不会自动替换 `latest_validated`。
 
-进度发布器与训练独立运行，加载环境后在另一终端执行：
+进度发布器由 `train_multi_map.py` 顶部的开关控制，默认随训练自动启动：
+
+```python
+ENABLE_PROGRESS = True       # 自动开启本地手机网页
+PUBLISH_TO_GITHUB = True     # 同时同步 GitHub；False 仅本地
+```
+
+`ENABLE_PROGRESS=False` 时不启动或停止任何发布器；`--check` 也不会启动发布器。
+如果已有发布器运行则复用，保留它原有的上传设置，不重复启动或关闭它。
+本脚本启动的发布器会在训练正常结束、失败或 Ctrl+C 后保存最终快照，
+开启 GitHub 时尝试最后一次上传，然后退出；已有发布器会收到刷新请求并继续运行。
+网络故障不会阻止模型保存，最终同步失败会打印提示，退出最多等待 180 秒。
+自动发布器退出后本地网页服务也会停止，GitHub 页面保留最后一次成功同步的数据。
+
+需要独立保留网页服务或稍后重新同步时，在另一终端执行：
 
 ```bash
 python rl_training/monitoring/publish_progress.py --serve --publish
