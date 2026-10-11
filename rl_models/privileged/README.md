@@ -27,8 +27,8 @@ SHA-256：
 
 证据：[验收汇总](policies/latest_validated/validation_summary.json)、
 [逐回合报告](policies/latest_validated/validation_1/evaluation.json)、
-[轨迹和速度图](policies/latest_validated/validation_1/trajectories.png)、
-[本轮训练曲线](policies/latest_validated/training_curve.png)。
+[轨迹和速度图](../../results/training/privileged/policies/latest_validated/validation_1/trajectories.png)、
+[本轮训练曲线](../../results/training/privileged/policies/latest_validated/training_curve.png)。
 这些本地文件未上传 Git。选定检查点经过验收后冻结，因此不一定是最后一步权重。
 
 在 `Gazebo_simulation` 目录加载 ROS 与项目环境后观看 3 分钟：

@@ -5,6 +5,7 @@
 
 | 目录 | 原位置及内容 |
 | --- | --- |
+| [worlds/](worlds/) | 旧简单场景 `train.sdf` 及临时 `matched_preview/` 地图；相应图和报告位于 `results/maps/matched_preview/` |
 | [vehicles/urdf/](vehicles/urdf) | 原 `urdf/simple_car.urdf`、`urdf/simple_car2.txt` |
 | [vehicles/meshes/](vehicles/meshes) | 原 `meshes/`；包含旧车辆使用的 STL |
 | [world_exports/O_size/](world_exports/O_size) | 原 `sdf/O_size/` 编辑器导出模型 |

@@ -1,12 +1,13 @@
 """本地与手机进度页面的集中配置；无需 ROS 环境即可运行发布器。"""
 
 from pathlib import Path
+from rl_training.common.paths import RESULTS_DIR
 
 # ===================== 可修改配置区 =====================
 SIMULATION_ROOT = Path(__file__).resolve().parents[2]
 MODELS_DIR = SIMULATION_ROOT / "rl_models"  # 下分 lidar / privileged，各自含 policies 和 logs
 MODEL_MODES = ("lidar", "privileged")
-OUTPUT_DIR = SIMULATION_ROOT / "rl_models" / "progress"
+OUTPUT_DIR = RESULTS_DIR / "training" / "progress"
 ASSETS_DIR = Path(__file__).with_name("dashboard")
 REPOSITORY = SIMULATION_ROOT.parent
 WORKTREE_DIR = SIMULATION_ROOT / "rl_models" / "runtime" / "publisher"

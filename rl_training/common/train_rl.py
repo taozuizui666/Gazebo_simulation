@@ -25,6 +25,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from ament_index_python.packages import get_package_share_directory
 from my_gazebo_launch.config import DEFAULT_URDF
+from my_gazebo_launch.world_config import load_world_settings, resolve_world
 
 from rl_training.common import config
 from rl_training.common.evaluation import EvaluationScenarios, evaluate_model
@@ -60,10 +61,11 @@ def snapshot_sources(directory, world):
             shutil.copy2(source, destination)
             manifest[str(relative)] = hashlib.sha256(source.read_bytes()).hexdigest()
     share = Path(get_package_share_directory("my_gazebo_launch"))
-    world_path = Path(world)
-    if not world_path.is_absolute():
-        world_path = share / world_path
-    for filename, source in (("world.sdf", world_path), ("robot.urdf", share / DEFAULT_URDF)):
+    world_path = resolve_world(world)
+    resources = [("world.sdf", world_path), ("robot.urdf", share / DEFAULT_URDF)]
+    if world_path.with_suffix(".json").is_file():
+        resources.append(("world.json", world_path.with_suffix(".json")))
+    for filename, source in resources:
         relative = Path("resources") / filename
         (target / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target / relative)
@@ -165,12 +167,12 @@ def make_env(role, args, settings, directory, rank=0):
     env = AicarGazeboEnv(
         role=role, domain_id=domain, port=port,
         header=args.config_header, world=args.world,
-        spawn_pose=config.TRAIN_SPAWN_POSES[rank % len(config.TRAIN_SPAWN_POSES)]
-                   if role == "train" else config.EVAL_SPAWN_POSES[0],
+        spawn_pose=args.train_spawns[rank % len(args.train_spawns)]
+                   if role == "train" else args.eval_spawns[0],
         seed=args.seed + rank if role == "train" else args.seed + 1000,
         log_dir=env_dir, settings=settings, observation_mode=args.observation_mode)
     if role == "eval":
-        env = EvaluationScenarios(env)
+        env = EvaluationScenarios(env, args.eval_spawns)
     return Monitor(env, filename=str(env_dir / "episodes"), info_keywords=(
         "termination_reason", "episode_distance_m", "episode_sim_time_sec",
         "episode_mean_speed_mps", "speed_compliance", "is_success"))
@@ -189,7 +191,8 @@ def run_training(args):
         raise ValueError("训练步数、评估集数、评估间隔和小时预算必须大于零。")
     if args.rollout_steps < 2 or (args.rollout_steps * args.num_envs) % config.BATCH_SIZE:
         raise ValueError("rollout-steps × num-envs 必须是 BATCH_SIZE 的整数倍。")
-    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps).validate()
+    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps,
+                       workspace_bounds=args.workspace_bounds).validate()
     vehicle = config.vehicle_config(args.config_header)
     prefix = "PPO_privileged" if args.observation_mode == "privileged" else "PPO_cruise"
     run_id = f"{prefix}_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
@@ -202,8 +205,8 @@ def run_training(args):
         "status": "starting", "requested_timesteps": args.timesteps,
         "config_header": str(args.config_header.resolve()), "vehicle": asdict(vehicle),
         "environment": asdict(settings), "reward": asdict(config.RewardSettings()),
-        "training_spawn_poses": config.TRAIN_SPAWN_POSES,
-        "evaluation_spawn_poses": config.EVAL_SPAWN_POSES,
+        "training_spawn_poses": args.train_spawns,
+        "evaluation_spawn_poses": args.eval_spawns,
         "ppo": {name: getattr(config, name) for name in (
             "LEARNING_RATE", "BATCH_SIZE", "N_EPOCHS", "GAMMA", "GAE_LAMBDA", "CLIP_RANGE",
             "ENTROPY_COEFF", "VALUE_COEFF", "MAX_GRAD_NORM", "POLICY_NET_ARCH")},
@@ -227,6 +230,7 @@ def run_training(args):
           f"输入 {metadata['observation_spec']['dimension']} 维，"
           f"目标速度 {vehicle.forward_speed_mps} m/s", flush=True)
     print(f"{args.num_envs} 个独立训练仿真，domains={domains}；评估 domain={args.eval_domain}", flush=True)
+    print(f"地图：{args.world}；工作边界：{args.workspace_bounds}", flush=True)
     print(f"模型目录：{directory}", flush=True)
     training = evaluation = model = None
     budget = None
@@ -351,7 +355,15 @@ def main(mode):
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--config-header", type=Path,
                         help="默认新训练使用共享车辆配置；评估/续训使用模型随附配置")
-    parser.add_argument("--world", default=config.WORLD)
+    parser.add_argument("--world", default=config.WORLD, help="SDF 地图；默认值在 common/config.py 顶部")
+    parser.add_argument("--train-spawn", dest="train_spawns", type=float, nargs=4, action="append",
+                        metavar=("X", "Y", "Z", "YAW"), help="覆盖地图训练出生点，可重复；米、弧度")
+    parser.add_argument("--eval-spawn", dest="eval_spawns", type=float, nargs=4, action="append",
+                        metavar=("X", "Y", "Z", "YAW"), help="覆盖地图评估出生点，可重复；米、弧度")
+    bounds = parser.add_mutually_exclusive_group()
+    bounds.add_argument("--workspace-bounds", type=float, nargs=4,
+                        metavar=("XMIN", "XMAX", "YMIN", "YMAX"), help="覆盖地图工作边界")
+    bounds.add_argument("--no-workspace-bounds", action="store_true", help="关闭越界判定")
     parser.add_argument("--train-domain", type=int, default=config.TRAIN_ROS_DOMAIN)
     parser.add_argument("--eval-domain", type=int, default=config.EVAL_ROS_DOMAIN)
     parser.add_argument("--train-port", type=int, default=config.TRAIN_GAZEBO_PORT)
@@ -381,6 +393,16 @@ def main(mode):
         if args.config_header is None and (model_path.parent / "vehicle_config.h").exists():
             args.config_header = model_path.parent / "vehicle_config.h"
     args.config_header = args.config_header or config.CONFIG_HEADER
+    try:
+        world = load_world_settings(args.world, train_spawn_poses=args.train_spawns,
+                                    eval_spawn_poses=args.eval_spawns,
+                                    workspace_bounds=args.workspace_bounds,
+                                    disable_bounds=args.no_workspace_bounds)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
+    args.world = str(world.world)
+    args.train_spawns, args.eval_spawns = world.train_spawn_poses, world.eval_spawn_poses
+    args.workspace_bounds = world.workspace_bounds
     torch.set_num_threads(config.TORCH_THREADS)
     if args.evaluate is not None:
         evaluate_model(args)

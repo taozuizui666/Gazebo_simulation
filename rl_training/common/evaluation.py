@@ -6,7 +6,6 @@ import hashlib
 from io import BytesIO
 import json
 import math
-from pathlib import Path
 import time
 from uuid import uuid4
 import xml.etree.ElementTree as ET
@@ -14,9 +13,10 @@ from zoneinfo import ZoneInfo
 
 import gymnasium as gym
 import numpy as np
-from ament_index_python.packages import get_package_share_directory
+from my_gazebo_launch.world_config import resolve_world
 
 from . import config
+from .paths import training_results_dir
 from .rl_env import AicarGazeboEnv
 from .progress_state import LiveState
 from .observations import observation_specification
@@ -24,9 +24,9 @@ from .model_io import load_model
 
 
 class EvaluationScenarios(gym.Wrapper):
-    def __init__(self, env, poses=None):
+    def __init__(self, env, poses):
         super().__init__(env)
-        self.poses = poses or config.EVAL_SPAWN_POSES
+        self.poses = poses
         self.index = 0
 
     def reset_sequence(self):
@@ -39,9 +39,7 @@ class EvaluationScenarios(gym.Wrapper):
 
 
 def world_polygons(world):
-    path = Path(world)
-    if not path.is_absolute():
-        path = Path(get_package_share_directory("my_gazebo_launch")) / path
+    path = resolve_world(world)
     root = ET.parse(path).getroot()
 
     def transform(element):
@@ -90,7 +88,9 @@ def save_trajectory_plot(path, trajectories, episodes, world, settings):
     speed_axis.set_title("Measured speed, including every turn")
     for ax in (axis, speed_axis):
         ax.grid(alpha=.2)
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150)
+    fig.savefig(path.with_suffix(".pdf"))
     plt.close(fig)
 
 
@@ -119,7 +119,8 @@ def evaluate_model(args):
         raise ValueError("模型观测配置与当前距离场/雷达定义不一致。")
     if model.observation_space.shape != (spec["dimension"],) or model.action_space.n != vehicle.label_count:
         raise ValueError("模型输入/动作空间与共享配置不同。")
-    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps).validate()
+    settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps,
+                       workspace_bounds=args.workspace_bounds).validate()
     directory = args.output_dir / f"evaluation_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
     directory.mkdir(parents=True)
     env = None
@@ -134,6 +135,7 @@ def evaluate_model(args):
     try:
         env = AicarGazeboEnv(role="eval", domain_id=args.eval_domain, port=args.eval_port,
                              header=args.config_header, world=args.world, seed=args.seed,
+                             spawn_pose=args.eval_spawns[0],
                              log_dir=directory, settings=settings, gui=args.gui,
                              real_time_factor=1.0 if args.gui else 0.0, observation_mode=mode)
         if args.gui:
@@ -141,7 +143,7 @@ def evaluate_model(args):
             # the model is spawned. Let it settle before the first paused step.
             time.sleep(config.GUI_STARTUP_SETTLE_SEC)
         for index in range(args.eval_episodes):
-            x, y, z, yaw = config.EVAL_SPAWN_POSES[index % len(config.EVAL_SPAWN_POSES)]
+            x, y, z, yaw = args.eval_spawns[index % len(args.eval_spawns)]
             env.spawn_pose = (
                 x + random.uniform(-args.eval_jitter_m, args.eval_jitter_m),
                 y + random.uniform(-args.eval_jitter_m, args.eval_jitter_m), z,
@@ -157,7 +159,7 @@ def evaluate_model(args):
                 if terminated or truncated:
                     break
             entry = {
-                "scenario": index % len(config.EVAL_SPAWN_POSES), "spawn_pose": env.spawn_pose,
+                "scenario": index % len(args.eval_spawns), "spawn_pose": env.spawn_pose,
                 "reason": info["termination_reason"], "steps": info["step"],
                 "reward": info["episode_return"], "distance_m": info["episode_distance_m"],
                 "sim_duration_sec": info["episode_sim_time_sec"],
@@ -199,7 +201,7 @@ def evaluate_model(args):
     try:
         (directory / "evaluation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         np.savez_compressed(directory / "trajectories.npz", **{f"episode_{i}": np.asarray(t) for i, t in enumerate(traces)})
-        save_trajectory_plot(directory / "trajectories.png", traces, episodes, args.world, settings)
+        save_trajectory_plot(training_results_dir(directory) / "trajectories.png", traces, episodes, args.world, settings)
     except BaseException as error:
         progress.update(force=True, status="failed", error_type=type(error).__name__, episodes=episodes)
         raise

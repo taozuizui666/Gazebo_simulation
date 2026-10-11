@@ -5,8 +5,7 @@ import math
 from pathlib import Path
 
 from my_gazebo_launch.config import (
-    DEFAULT_CONFIG_HEADER, DEFAULT_WORLD, DEFAULT_SPAWN_X, DEFAULT_SPAWN_Y,
-    DEFAULT_SPAWN_Z, DEFAULT_SPAWN_YAW, load_config,
+    DEFAULT_CONFIG_HEADER, DEFAULT_WORLD, load_config,
     IGNORED_CONTACT_MODELS,
 )
 
@@ -14,28 +13,8 @@ from my_gazebo_launch.config import (
 SIMULATION_ROOT = Path(__file__).resolve().parents[2]
 RL_MODEL_DIR = SIMULATION_ROOT / "rl_models"
 CONFIG_HEADER = DEFAULT_CONFIG_HEADER
-WORLD = DEFAULT_WORLD
-SPAWN_POSE = (DEFAULT_SPAWN_X, DEFAULT_SPAWN_Y, DEFAULT_SPAWN_Z, DEFAULT_SPAWN_YAW)
-# 每个训练实例有固定出生点，碰撞后仍回到该点。两个行驶方向都参加训练。
-TRAIN_SPAWN_POSES = (
-    SPAWN_POSE,
-    (0.05, -3.0, 0.0, math.pi / 2),
-    (-1.2, -4.94, 0.0, math.pi),
-    (-2.47, -3.0, 0.0, -math.pi / 2),
-)
+WORLD = DEFAULT_WORLD  # --world 未指定时使用；出生点/边界读取地图同名 JSON。
 NUM_TRAIN_ENVS = 4
-EVAL_SPAWN_POSES = (
-    SPAWN_POSE,
-    (0.05, -3.7, 0.0, -math.pi / 2),
-    (-2.47, -3.6, 0.0, math.pi / 2),
-    (-1.45, -4.94, 0.0, 0.0),
-    (*SPAWN_POSE[:3], math.pi),
-    (-1.8, -1.30, 0.0, 0.0),
-    (0.05, -3.0, 0.0, math.pi / 2),
-    (-2.47, -3.0, 0.0, -math.pi / 2),
-)
-# 当前 train_world3 环形道路的外边界；更换世界时同步修改或显式设为 None。
-WORKSPACE_BOUNDS = (-2.9, 0.5, -5.45, -0.8)  # xmin, xmax, ymin, ymax
 
 # 两个独立 Gazebo master / ROS domain，不控制手动启动的小车。
 TRAIN_ROS_DOMAIN = 81
@@ -115,7 +94,7 @@ class EnvironmentSettings:
     loop_min_duration_sec: float = LOOP_MIN_DURATION_SEC
     loop_min_turn_rad: float = LOOP_MIN_TURN_RAD
     loop_max_span_m: float = LOOP_MAX_SPAN_M
-    workspace_bounds: tuple | None = WORKSPACE_BOUNDS
+    workspace_bounds: tuple | None = None  # 创建环境时使用所选地图的边界。
 
     def validate(self):
         for name, value in self.__dict__.items():

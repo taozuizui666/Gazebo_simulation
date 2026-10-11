@@ -7,24 +7,28 @@
 | 路径 | 用途 |
 | --- | --- |
 | [worlds/train_world3.sdf](worlds/train_world3.sdf) | 当前训练、评估与手动仿真的默认地图 |
-| [worlds/train_world2.sdf](worlds/train_world2.sdf) | 保留的备用地图版本，需显式选择 |
-| [worlds/train_world.sdf](worlds/train_world.sdf) | 保留的早期地图，需显式选择 |
-| [worlds/train.sdf](worlds/train.sdf) | 使用 `model://wall` 的简单场景 |
+| [worlds/train_world3.json](worlds/train_world3.json) | 当前地图的训练/评估出生点和工作边界 |
+| `worlds/generated/` | 生成工具输出的 SDF 地图和同名 JSON 配置；预览位于 `../results/maps/generated/` |
 | [urdf/simple_car1.urdf](urdf/simple_car1.urdf) | 当前车辆几何模板，启动时套用共享车辆参数 |
 | [models/wall/](models/wall) | `model://wall` 所需的模型描述与 SDF |
 
 `setup.py` 按同样相对路径安装本目录。启动入口把 `assets/models/` 加入
 Gazebo 模型搜索路径；地面和光源使用本机 Gazebo 资源。
 
-这些地图和当前车辆模板在目录整理中仅移动位置，文件内容保持原样。
+原手绘地图是 `train_world3.sdf`，旧启动代码和训练记录均使用它。
+旧简单场景和临时预览地图已移至 `archive/worlds/`。
 历史编辑器导出文件及旧车辆素材位于 [archive/](../archive/README.md)，不参与正式安装。
 
 切换地图示例（在 `Gazebo_simulation` 目录）：
 
 ```bash
 ros2 launch my_gazebo_launch train_world.launch.py \
-  world:=assets/worlds/train_world2.sdf x:=0 y:=0 yaw:=0
+  world:=assets/worlds/generated/ellipse_002.sdf
 ```
 
-不同地图需选择合适出生点。用于 RL 时还需更新训练出生点和工作边界，并重新评估。
+RL 通过 `--world` 选择地图，自动读取同名 JSON 的出生点和工作边界；默认地图在
+`rl_training/common/config.py` 顶部配置。出生点、边界也可用命令行覆盖，详见
+[RL 使用说明](../rl_training/README.md#选择地图与出生点)。
+手动仿真未指定位置时读取该地图 JSON 的第一个训练出生点；没有 JSON 时显式传入 x/y/yaw。
+批量生成地图参见 [工具说明](../tools/README.md#批量生成训练地图)，新地图需重新评估模型。
 修改墙高参见 [工具说明](../tools/README.md)。

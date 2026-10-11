@@ -15,5 +15,8 @@ rl_models/privileged/logs/
 rl_models/privileged/runtime/
 
 # 网页快照与发布工作区
-rl_models/progress/
 rl_models/runtime/
+
+# 集中保存的本机结果（保留索引）
+results/*
+!results/README.md

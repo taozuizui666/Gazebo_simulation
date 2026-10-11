@@ -46,3 +46,18 @@ ROS 包名仍为 `my_gazebo_launch`；共享 `vehicle_config.h`、两类 RL 入�
 验收报告及训练源码快照保持原样。旧报告中的 `sdf/` 路径记录当时环境，
 不会改写成新的路径；当前入口已使用 `assets/`。
 之前 RL 文件分类的本机路径对照仍在 `rl_models/runtime/layout_migration.json`。
+
+## 结果集中整理
+
+- `assets/worlds/` 只保留原手绘地图 `train_world3.sdf`、同名 JSON 和 `generated/` 正式生成地图。
+- `assets/worlds/train.sdf` → `archive/worlds/train.sdf`。
+- 临时 `assets/worlds/matched_preview/` 的 SDF/JSON → `archive/worlds/matched_preview/`。
+- 两批地图的预览、Gazebo 截图及演示报告 → `results/maps/<批次>/`。
+- `rl_models/<类型>/policies/` 中的图片 → `results/training/<类型>/policies/`，保留批次层级。
+- `rl_models/progress/` → `results/training/progress/`，发布器默认路径同步更新。
+
+`train_world.sdf` 和 `train_world2.sdf` 在本次迁移时已被删除，未恢复。
+原手绘地图及默认训练场景始终是 `train_world3.sdf`。
+PNG 与 PDF 同目录；生成器和独立评估今后同时输出这两种格式。
+历史图片原样移动，不将 PNG 转换为伪矢量 PDF。
+权重、原始报告、训练源码快照及 Git 发布工作区保持原位；发布工作区的图片是同步缓存。

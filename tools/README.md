@@ -1,5 +1,66 @@
 # 资源编辑工具
 
+## 批量生成训练地图
+
+[generate_maps.py](generate_maps.py) 从圆角矩形和椭圆两种环形模板生成地图。
+不需要 ROS；使用普通 `python`，预览图需要已安装的 Matplotlib。
+以下命令在 `Gazebo_simulation` 目录执行：
+
+```bash
+# 默认生成 6 张，交替使用两种模板。
+python tools/generate_maps.py
+
+# 换种子生成另一批；不同批次使用不同输出目录。
+python tools/generate_maps.py --count 20 --seed 123 --output-dir assets/worlds/batch_123
+
+# 固定尺寸，批量改变圆角半径。
+python tools/generate_maps.py --templates rounded_rectangle --count 10 \
+  --width 2.52 --height 3.64 --road-width 0.38 --output-dir assets/worlds/rounded_batch
+```
+
+默认参数全部位于脚本顶部的大写常量区：数量、模板、种子、输出目录、长宽范围、
+道路净宽、圆角半径、墙厚/墙高和曲线分段长度。长宽是道路中心线的跨度，单位为米。
+命令行覆盖默认值；省略尺寸参数时从配置范围采样。同样的参数和种子可复现同一批地图。
+
+默认中心线跨度为水平 2.4～3.0 m、垂直 3.4～4.2 m，道路净宽 0.35～0.40 m，
+接近现有手绘地图（实测直道约 0.34～0.40 m）。圆角半径 0.45～0.65 m，
+曲线分段长度 0.12 m；墙厚沿用原图的 0.15 m。
+生成器自动调用 [adjust_wall_height.py](adjust_wall_height.py) 处理每张地图。
+默认墙高读取该脚本顶部的 `DEFAULT_WALL_HEIGHT_M`（当前为 0.3 m）；
+如需只改变生成地图的墙高，可修改生成器顶部的 `WALL_HEIGHT_M`。
+墙体 link 的 z 为 0，高度偏移放在 collision/visual 内，确保后续调整墙高时底部仍贴地。
+地图内还保存了朝向道路中心的默认相机，打开 Gazebo 即可查看全景。
+
+每张地图输出以下同名文件（资源与结果分开保存），例如 `rounded_rectangle_001`：
+
+- `.sdf`：实际 Gazebo 场景，墙体均为静态 box，兼容特权教师。
+- `.json`：4 个训练出生点、8 个评估出生点、朝向（弧度）、工作边界及生成参数。
+- `.png` / `.pdf`：俯视预览；橙色编号箭头表示训练出生点和朝向。
+
+同一输出目录再次生成会覆盖同名文件，因此需要保留不同批次时请换输出目录。
+生成地图及 JSON 默认位于 `assets/worlds/generated/`，不覆盖手绘地图。
+PNG/PDF 默认位于 `results/maps/<地图输出目录名>/`，例如 `results/maps/generated/`。
+顶部 `DEFAULT_PREVIEW_DIR` 配置预览根目录；`--preview-dir` 可指定本批预览目录。
+若地图输出目录的末级名称相同，请用 `--preview-dir` 区分结果。
+训练和评估直接指定地图即可自动读取同名 JSON：
+
+```bash
+python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
+python rl_training/lidar/train.py --world assets/worlds/generated/ellipse_002.sdf
+```
+
+仿真环境已加载时，可以直接预览新地图；手动启动默认使用该地图的第一个训练出生点：
+
+```bash
+ros2 launch my_gazebo_launch train_world.launch.py \
+  world:=assets/worlds/generated/ellipse_002.sdf
+```
+
+不同地图目前按一次运行一张选择，并行车在该地图的不同起点训练。
+这些示例地图用于搭建训练环境；旧模型在新地图上的巡航表现需要重新评估。
+
+## 修改现有墙高
+
 [adjust_wall_height.py](adjust_wall_height.py) 修改地图中 `Wall*` 链接的 box 墙体高度，
 同步调整碰撞体和外观的局部中心高度；保留模型与链接的位置、水平尺寸及朝向。
 

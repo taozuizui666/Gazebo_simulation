@@ -13,7 +13,8 @@ ROS 2 Humble + Gazebo Classic 小车仿真，提供共享轮速目标、规范�
 | [assets/](assets/README.md) | 当前车辆、仿真地图和可复用模型 |
 | [rl_training/](rl_training/README.md) | `lidar/`、`privileged/` 两类 RL 与共用逻辑、进度网页 |
 | [rl_models/](rl_models/README.md) | 分类型保存的权重、日志、轨迹和验收结果 |
-| [tools/](tools/README.md) | 墙高等资源编辑工具 |
+| [results/](results/README.md) | 地图预览、仿真截图、训练/评估图及 PDF，按批次保存 |
+| [tools/](tools/README.md) | 批量生成环形地图、俯视预览及墙高编辑工具 |
 | [docs/](docs/layout.md) | 目录说明、仿真使用、车辆和雷达协议 |
 | [archive/](archive/README.md) | 旧车辆及网格、历史地图导出素材 |
 
@@ -70,6 +71,15 @@ python rl_training/privileged/train.py
 ```
 
 两条默认训练命令使用同一组 domain/端口，应分别运行。
+快速生成多张地图并选择其中一张训练：
+
+```bash
+python tools/generate_maps.py --count 6
+python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
+```
+
+`--world` 省略时使用配置区顶部的默认地图；出生点和工作边界随地图读取同名 JSON。
+生成参数位于脚本顶部，命令行可覆盖，详见 [地图生成工具](tools/README.md)。
 PPO 参数、续训、独立验收和时间预算见 [RL 使用说明](rl_training/README.md)。
 现有验收限于记录中的地图、起点和车辆条件；后续教师动作与雷达配对采集尚未启动。
 

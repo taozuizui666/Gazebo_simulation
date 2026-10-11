@@ -8,10 +8,10 @@ world geometry is rejected instead of silently omitting an obstacle.
 from dataclasses import asdict, dataclass
 import hashlib
 import math
-from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import numpy as np
+from my_gazebo_launch.world_config import resolve_world
 
 from .config import (GRID_ROWS, GRID_COLS, GRID_BACK_M, GRID_FRONT_M, GRID_HALF_WIDTH_M,
                      DISTANCE_CLIP_M, BODY_CLEARANCE_RADIUS_M, FORWARD_CHECK_M,
@@ -50,14 +50,6 @@ class PrivilegedSettings:
         return {"kind": "ground_truth_local_distance_field_v1", "dimension": self.dimension,
                 "settings": asdict(self), "state_features": ["forward_speed", "yaw_rate", "previous_action"],
                 "lidar_required": False, "pose_source": "gazebo_physics_step_ack"}
-
-
-def resolve_world(world):
-    path = Path(world).expanduser()
-    if not path.is_absolute():
-        from ament_index_python.packages import get_package_share_directory
-        path = Path(get_package_share_directory("my_gazebo_launch")) / path
-    return path.resolve(strict=True)
 
 
 def _pose(element):

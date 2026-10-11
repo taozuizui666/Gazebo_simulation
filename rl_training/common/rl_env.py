@@ -2,6 +2,7 @@
 
 from collections import deque
 from contextlib import suppress
+from dataclasses import replace
 import math
 import os
 from pathlib import Path
@@ -32,6 +33,7 @@ from my_gazebo_launch.config import (
     CONTACT_TOPIC, DEFAULT_ENTITY_NAME, LABEL_TOPIC, RAW_SCAN_TOPIC, WHEEL_TARGET_TOPIC,
 )
 from my_gazebo_launch.control import wheel_targets
+from my_gazebo_launch.world_config import load_world_settings, resolve_world
 from my_gazebo_launch.lidar_processing import scan_to_distances
 from . import config
 from .reward import compute_reward
@@ -178,6 +180,15 @@ class AicarGazeboEnv(gym.Env):
         super().__init__()
         if role not in ("train", "eval"):
             raise ValueError("role 必须为 train 或 eval。")
+        world = resolve_world(world or config.WORLD)
+        if spawn_pose is None or settings is None:
+            world_settings = load_world_settings(world)
+            if spawn_pose is None:
+                spawn_pose = (world_settings.train_spawn_poses if role == "train"
+                              else world_settings.eval_spawn_poses)[0]
+            if settings is None:
+                settings = replace(config.EnvironmentSettings(),
+                                   workspace_bounds=world_settings.workspace_bounds)
         self.vehicle = config.vehicle_config(header)
         self.settings = (settings or config.EnvironmentSettings()).validate()
         self.reward_settings = reward_settings or config.RewardSettings()
@@ -186,11 +197,11 @@ class AicarGazeboEnv(gym.Env):
             config.TRAIN_ROS_DOMAIN if role == "train" else config.EVAL_ROS_DOMAIN)
         self.port = port if port is not None else (
             config.TRAIN_GAZEBO_PORT if role == "train" else config.EVAL_GAZEBO_PORT)
-        self.spawn_pose = tuple(spawn_pose or config.SPAWN_POSE)
+        self.spawn_pose = tuple(spawn_pose)
         if observation_mode not in ("lidar", "privileged"):
             raise ValueError("observation_mode 必须为 lidar 或 privileged。")
         self.observation_mode = observation_mode
-        self.ground_truth_map = (GroundTruthMap(world or config.WORLD, privileged_settings)
+        self.ground_truth_map = (GroundTruthMap(world, privileged_settings)
                                  if observation_mode == "privileged" else None)
         self.observation_space = (spaces.Box(-1.,1.,(self.ground_truth_map.settings.dimension,),np.float32)
                                   if self.ground_truth_map else
@@ -230,7 +241,7 @@ class AicarGazeboEnv(gym.Env):
             self.thread = threading.Thread(target=self.executor.spin, daemon=True)
             self.thread.start()
             self.simulator = SimulationProcess(
-                domain_id=self.domain_id, port=self.port, world=world or config.WORLD,
+                domain_id=self.domain_id, port=self.port, world=world,
                 header=header or config.CONFIG_HEADER, spawn_pose=self.spawn_pose, seed=seed,
                 log_path=log_dir / f"gazebo_{role}.log", timeout=self.settings.data_timeout_sec,
                 gui=gui, real_time_factor=real_time_factor, enable_lidar=not bool(self.ground_truth_map))
@@ -364,7 +375,7 @@ class AicarGazeboEnv(gym.Env):
             # settled pose and current contacts rather than the old impact latch.
             collision = self.step_contact[1]
             if collision or math.dist((odom["x"], odom["y"]), (x, y)) > 0.03:
-                raise SimulationDataError("出生点与障碍物相碰，请修改 SPAWN_POSE。")
+                raise SimulationDataError("出生点与障碍物相碰，请修改地图 JSON 或 --train-spawn / --eval-spawn。")
             self.current_step = 0
             self.episode_return = self.episode_distance = self.episode_sim_time = 0.
             self.previous_action = None

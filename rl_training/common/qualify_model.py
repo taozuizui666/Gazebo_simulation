@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from rl_training.common.paths import family_config
+from rl_training.common.paths import family_config, training_results_dir
 
 # 发布到本地已验证目录的门槛；不会上传或生成随机森林数据。
 MIN_EPISODES_PER_REPORT = 8
@@ -73,9 +73,13 @@ def qualify(model_path, report_paths, output_dir=None):
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "model.zip").write_bytes(model_bytes)
     shutil.copy2(normalizer, directory / "vecnormalize.pkl")
-    for filename in ("vehicle_config.h", "training_config.py", "input_config.py", "training_curve.png", "training_curve_data.json"):
+    for filename in ("vehicle_config.h", "training_config.py", "input_config.py", "training_curve_data.json"):
         if (source / filename).exists():
             shutil.copy2(source / filename, directory / filename)
+    result_dir = training_results_dir(directory)
+    result_dir.mkdir(parents=True, exist_ok=False)
+    for picture in training_results_dir(source).glob("training_curve.*"):
+        shutil.copy2(picture, result_dir / picture.name)
     if (source / "source_snapshot").exists():
         shutil.copytree(source / "source_snapshot", directory / "source_snapshot")
     metadata.update(status="validated", training_timesteps=steps,
@@ -85,9 +89,13 @@ def qualify(model_path, report_paths, output_dir=None):
     for index, path in enumerate(report_paths, 1):
         target = directory / f"validation_{index}"
         target.mkdir()
-        for name in ("evaluation.json", "trajectories.png", "trajectories.npz", "trajectory_metrics.json"):
+        for name in ("evaluation.json", "trajectories.npz", "trajectory_metrics.json"):
             if (path.parent / name).exists():
                 shutil.copy2(path.parent / name, target / name)
+        result_target = result_dir / f"validation_{index}"
+        result_target.mkdir()
+        for picture in training_results_dir(path.parent).glob("trajectories.*"):
+            shutil.copy2(picture, result_target / picture.name)
     episodes = [entry for report in reports for entry in report["episodes"]]
     summary = {
         "observation_mode": mode,
@@ -106,6 +114,10 @@ def qualify(model_path, report_paths, output_dir=None):
     temporary = output_dir / f".{latest_name}_{uuid4().hex}.tmp"
     temporary.symlink_to(directory.name, target_is_directory=True)
     temporary.replace(latest)
+    result_latest = result_dir.parent / latest_name
+    result_temporary = result_dir.parent / temporary.name
+    result_temporary.symlink_to(result_dir.name, target_is_directory=True)
+    result_temporary.replace(result_latest)
     print(f"已冻结通过验证的模型：{directory}")
     print(f"固定入口：{latest / 'model.zip'}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

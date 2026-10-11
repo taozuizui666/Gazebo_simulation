@@ -21,7 +21,8 @@ lidar/ 或 privileged/
 训练权重、日志及运行文件留在本机，由 Git 忽略。说明文件可提交。
 普通训练不会覆盖已验证模型，只有独立长时验收达标后才能更新固定入口。
 
-共用网页快照位于 `progress/`，GitHub 发布工作区位于 `runtime/publisher/`。
+结果图（含 PDF）集中在 [../results/training/](../results/training/)，保留类型、批次和验收编号。
+共用网页快照位于 `../results/training/progress/`，GitHub 发布工作区位于 `runtime/publisher/`。
 页面顶部可以切换模型类别，两类的统计、验收和图片分别展示。
 
 2026-10-11 分类迁移保留了历史 `policies/`、`logs/` 文件的原始内容，

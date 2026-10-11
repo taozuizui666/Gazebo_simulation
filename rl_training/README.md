@@ -16,6 +16,7 @@
 
 ```bash
 source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
 colcon build --symlink-install --packages-select my_gazebo_launch
 source install/setup.bash
 ```
@@ -69,10 +70,47 @@ python rl_training/lidar/train.py \
 入口与模型类型不符时立即报错。模型输入规格改变后也不能直接续训。
 
 如需有意改变车辆参数来微调，使用 `--config-header 新头文件路径` 和
-`--resume-allow-vehicle-change`，随后重新独立验收。更换地图使用 `--world`，同时
-修改出生点和边界；现有结果不能证明新地图上的表现。
+`--resume-allow-vehicle-change`，随后重新独立验收。现有结果不能证明新地图上的表现。
 
-地图现位于 `assets/worlds/`，例如 `--world assets/worlds/train_world3.sdf`。
+## 选择地图与出生点
+
+`--world` 指定地图；省略时使用 [common/config.py](common/config.py) 顶部的 `WORLD`，
+默认值来自 `my_gazebo_launch/config.py` 的 `DEFAULT_WORLD`（当前为 `train_world3.sdf`）。
+出生点和工作边界随地图从同名 JSON 读取，不在训练代码里固定。
+原地图对应 `assets/worlds/train_world3.json`；生成地图自动带有此文件。
+
+```bash
+python tools/generate_maps.py --count 6
+python rl_training/privileged/train.py --world assets/worlds/generated/rounded_rectangle_001.sdf
+
+# 用新地图评估已保存模型，也使用新地图的出生点和边界。
+python rl_training/privileged/train.py \
+  --evaluate rl_models/privileged/policies/latest_validated/model.zip \
+  --world assets/worlds/generated/ellipse_002.sdf --gui --eval-episodes 8
+```
+
+同名 JSON 使用 `train_spawn_poses`、`eval_spawn_poses`、`workspace_bounds` 三个字段，
+每个出生点为 `[x, y, z, yaw]`（米、弧度）；边界为 `[xmin, xmax, ymin, ymax]`，
+设为 `null` 时关闭越界判定。命令行可覆盖：
+
+```bash
+python rl_training/privileged/train.py --world assets/worlds/train_world3.sdf \
+  --train-spawn -0.931026 -1.305602 0 0 \
+  --train-spawn 0.05 -3.0 0 1.5707963267948966 \
+  --eval-spawn -1.2 -4.94 0 3.141592653589793 \
+  --workspace-bounds -2.9 0.5 -5.45 -0.8
+```
+
+`--train-spawn` / `--eval-spawn` 可重复，分别替换整组起点；并行车按起点列表循环分配。
+`--no-workspace-bounds` 显式关闭越界判定，不能和 `--workspace-bounds` 同用。
+没有同名 JSON 的自定义地图需要显式传入起点；只提供训练或评估起点时，两者共用该列表，
+未指定边界时不启用越界判定。所有起点必须在已启用的边界内。
+训练和评估结果记录实际起点、边界与地图路径，训练快照同时保存原地图 JSON。
+
+地图路径可为绝对路径，或相对于 `Gazebo_simulation` 的资源路径。
+生成的地图可直接读取，无需为每次生成重新构建资源。
+一次训练使用一张指定地图；`--num-envs` 控制在该图上的并行车辆数量。
+地图批量生成说明见 [工具说明](../tools/README.md)。
 目录与旧路径对照见 [工程目录说明](../docs/layout.md)。
 
 ## 配置在哪里
@@ -84,7 +122,8 @@ python rl_training/lidar/train.py \
 | [my_gazebo_launch/vehicle_config.h](../my_gazebo_launch/vehicle_config.h) | 前进速度、标签数、轮距、轮径、雷达点数与协议 |
 | [lidar/config.py](lidar/config.py) | 雷达模型、日志、运行文件的默认路径 |
 | [privileged/config.py](privileged/config.py) | 特权模型路径、距离场网格、覆盖范围、归一化和几何安全间距 |
-| [common/config.py](common/config.py) | 两类共用的地图、出生点、边界、domain/端口、回合时限、奖励、卡住检测及 PPO 参数 |
+| [common/config.py](common/config.py) | 两类共用的默认地图、domain/端口、回合时限、奖励、卡住检测及 PPO 参数 |
+| `assets/worlds/地图名.json` | 该地图的训练/评估出生点、朝向和工作边界；支持命令行覆盖 |
 | [monitoring/progress_config.py](monitoring/progress_config.py) | 网页地址、端口、目录、刷新周期和统计窗口 |
 
 默认 4 个训练实例：domain 81/83/85/87、端口 11451/11453/11455/11457；
@@ -109,7 +148,10 @@ python rl_training/lidar/train.py \
 - `source_snapshot/`：当时源码、世界、车辆资源及散列清单。
 - 各训练车的回合、实时状态和 Gazebo 日志，以及定期评估结果。
 
-独立评估写入本类 `policies/evaluation_*/`，保存模型散列、轨迹、速度、失败原因和图片。
+独立评估将模型散列、原始轨迹、速度和失败原因写入本类 `policies/evaluation_*/`。
+轨迹 PNG/PDF 统一写入 `results/training/<类型>/policies/evaluation_*/`；
+已验证模型的图片也保存在对应结果批次中。结果根目录由 `common/paths.py` 的 `RESULTS_DIR` 配置。
+自定义 `--output-dir` 位于 `rl_models/` 外时，图片归入 `results/training/external/<绝对路径>/`。
 TensorBoard 分别查看 `rl_models/lidar/logs` 或 `rl_models/privileged/logs`。
 正常结束或 Ctrl+C 中断会尝试保存当前模型；也可在本次批次目录创建 `STOP` 文件，
 让训练在下一次采样检查时停止。

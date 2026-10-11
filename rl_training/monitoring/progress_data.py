@@ -12,6 +12,7 @@ import statistics
 import time
 
 from . import progress_config as cfg
+from rl_training.common.paths import training_results_dir
 
 FAILURES = ("collision", "stuck", "looping", "slow", "out_of_bounds")
 TAGS = {
@@ -245,8 +246,9 @@ class SnapshotBuilder:
         matches = bool(digest and digest == summary.get("model_sha256") and episodes
                        and all(r["passed"] for r in reports)
                        and len(episodes) == summary.get("episodes"))
-        for name, source in (("validation.png", path / "validation_1/trajectories.png"),
-                             ("learning.png", path / "training_curve.png")):
+        result_path = training_results_dir(path)
+        for name, source in (("validation.png", result_path / "validation_1/trajectories.png"),
+                             ("learning.png", result_path / "training_curve.png")):
             if source.is_file():
                 self.media[f"media/{mode}_{name}"] = source
         stats = episode_stats(episodes)

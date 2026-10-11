@@ -17,11 +17,11 @@ from launch_ros.actions import Node
 from launch.conditions import IfCondition
 
 from my_gazebo_launch.config import (
-    DEFAULT_CONFIG_HEADER, DEFAULT_ENTITY_NAME, DEFAULT_SPAWN_X, DEFAULT_SPAWN_Y,
-    DEFAULT_SPAWN_Z, DEFAULT_SPAWN_YAW, DEFAULT_URDF, DEFAULT_WORLD,
+    DEFAULT_CONFIG_HEADER, DEFAULT_ENTITY_NAME, DEFAULT_URDF, DEFAULT_WORLD,
     GAZEBO_MODEL_DIR, GAZEBO_SYSTEM_MODEL_DIR, SIM_CLOCK_PUBLISH_HZ, load_config,
 )
 from my_gazebo_launch.robot_description import render_robot, render_world
+from my_gazebo_launch.world_config import load_world_settings, resolve_world
 
 
 def _remove_params(context, paths):
@@ -34,10 +34,11 @@ def _start(context):
     share = Path(get_package_share_directory("my_gazebo_launch"))
     header = Path(LaunchConfiguration("config_header").perform(context)).expanduser().resolve()
     config = load_config(header)
-    world_arg = Path(LaunchConfiguration("world").perform(context)).expanduser()
-    world = world_arg if world_arg.is_absolute() else share / world_arg
-    if not world.is_file():
-        raise FileNotFoundError(f"World file not found: {world}")
+    world = resolve_world(LaunchConfiguration("world").perform(context))
+    spawn = [LaunchConfiguration(name).perform(context) for name in ("x", "y", "z", "yaw")]
+    if any(value == "" for value in spawn):
+        defaults = load_world_settings(world).train_spawn_poses[0]
+        spawn = [value if value != "" else str(default) for value, default in zip(spawn, defaults)]
     enable_lidar = IfCondition(LaunchConfiguration("enable_lidar")).evaluate(context)
     description = render_robot(share / DEFAULT_URDF, config, enable_lidar=enable_lidar)
     models = [str(share / GAZEBO_MODEL_DIR)]
@@ -78,10 +79,7 @@ def _start(context):
         # spawn_entity waits for robot_description and the factory service itself.
         Node(package="gazebo_ros", executable="spawn_entity.py", arguments=[
             "-entity", DEFAULT_ENTITY_NAME, "-topic", "robot_description",
-            "-x", LaunchConfiguration("x").perform(context),
-            "-y", LaunchConfiguration("y").perform(context),
-            "-z", LaunchConfiguration("z").perform(context),
-            "-Y", LaunchConfiguration("yaw").perform(context),
+            "-x", spawn[0], "-y", spawn[1], "-z", spawn[2], "-Y", spawn[3],
         ], output="screen"),
         Node(package="my_gazebo_launch", executable="action_controller",
              parameters=[common], output="screen"),
@@ -100,8 +98,7 @@ def generate_launch_description():
         "lockstep": "false",
         "training_step_plugin": "",
         "real_time_factor": "1.0",
-        "x": str(DEFAULT_SPAWN_X), "y": str(DEFAULT_SPAWN_Y),
-        "z": str(DEFAULT_SPAWN_Z), "yaw": str(DEFAULT_SPAWN_YAW),
+        "x": "", "y": "", "z": "0.0", "yaw": "",  # 未指定时使用所选地图的出生点。
     }
     return LaunchDescription([
         *(DeclareLaunchArgument(name, default_value=value) for name, value in defaults.items()),

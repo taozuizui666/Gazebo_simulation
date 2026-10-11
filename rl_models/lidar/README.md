@@ -23,7 +23,7 @@ SHA-256：
 
 证据：[验收汇总](policies/latest_validated/validation_summary.json)、
 [逐回合报告](policies/latest_validated/validation_1/evaluation.json)、
-[轨迹和速度图](policies/latest_validated/validation_1/trajectories.png)。
+[轨迹和速度图](../../results/training/lidar/policies/latest_validated/validation_1/trajectories.png)。
 这些本地文件未上传 Git。上述结果是多段独立验收，不代表一段连续运行 16,000 秒。
 
 在 `Gazebo_simulation` 目录加载 ROS 与项目环境后观看：
