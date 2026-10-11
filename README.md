@@ -51,11 +51,20 @@ ros2 topic pub --rate 10 /steering_label std_msgs/msg/Int32 '{data: 7}'
 ## 多地图训练入口
 
 ```bash
-python rl_training/privileged/train_multi_map.py --check  # 仅检查配置
-python rl_training/privileged/train_multi_map.py          # 开始联合训练
+cd /home/zui/dissertation/Gazebo_simulation
+
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source install/setup.bash
+
+# 检查配置，并显示将从哪个模型续训
+python rl_training/privileged/train_multi_map.py --check
+
+# 开始训练
+python rl_training/privileged/train_multi_map.py
 ```
 
-先加载上面的运行环境。并行数量、控制步长、地图列表、出生点扰动、PPO 参数和时间预算
+检查通过后再执行训练命令。并行数量、控制步长、地图列表、出生点扰动、PPO 参数和时间预算
 统一在 `rl_training/privileged/train_multi_map.py` 顶部修改，详见 [多地图训练说明](rl_training/privileged/README.md#多地图联合训练)。
 
 ## 两类 RL
@@ -65,13 +74,28 @@ python rl_training/privileged/train_multi_map.py          # 开始联合训练
 | 雷达输入 PPO | [lidar/train.py](rl_training/lidar/train.py) | [257,276 步，0.1 m/s](rl_models/lidar/README.md) |
 | 特权环境场 PPO | [privileged/train.py](rl_training/privileged/train.py) | [2,392,588 步，0.2 m/s](rl_models/privileged/README.md) |
 
-观看已验证特权教师 3 分钟：
+### Gazebo 可视化观看
+
+使用 [privileged/visualize.py](rl_training/privileged/visualize.py) 观看已验证特权模型控制小车。
+脚本自动加载 ROS、Gazebo 和项目环境，按地图列表依次打开 Gazebo。
+以下命令在 `Gazebo_simulation` 目录执行：
 
 ```bash
-python rl_training/privileged/train.py \
-  --evaluate rl_models/privileged/policies/latest_validated/model.zip \
-  --gui --eval-episodes 1 --episode-steps 900
+# 检查模型、地图和配置，不启动仿真
+python rl_training/privileged/visualize.py --check
+
+# 打开 Gazebo 观看
+python rl_training/privileged/visualize.py
 ```
+
+与 `train_multi_map.py` 一样，配置集中在脚本顶部：`MODEL` 指定模型，`WORLDS` 指定地图列表，
+`EPISODES_PER_MAP` 和 `MAX_STEPS_PER_EPISODE` 控制观看回合数与最大步数，
+`POSITION_JITTER_M` 和 `YAW_JITTER_DEG` 控制出生点扰动。
+默认使用 `latest_validated/model.zip`，在 `train_world3.sdf` 观看一回合、最多约 3 分钟仿真时间；
+失败会提前结束。出生点和工作边界读取地图同名 JSON。
+每张地图的评估报告与轨迹保存到 `OUTPUT_DIR` 下独立的 `evaluation_*` 目录。
+
+### 训练与评估
 
 评估和续训自动读取模型随附车辆配置。新训练二选一：
 

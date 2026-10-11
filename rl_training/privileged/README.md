@@ -19,6 +19,17 @@ python rl_training/privileged/train.py \
 ```
 
 当前已验证教师为 2,392,588 步、0.2 m/s，来自六小时续训。
+
+可视化入口 [visualize.py](visualize.py) 与 `train_multi_map.py` 一样，配置集中在文件顶部。
+修改 `MODEL`、`WORLDS`、`EPISODES_PER_MAP`、`MAX_STEPS_PER_EPISODE` 和出生点扰动，
+即可依次观看指定地图。默认打开 `train_world3.sdf`，观看一回合、最多 180 仿真秒。
+脚本自动加载 ROS、Gazebo 和项目环境；每张地图的报告和轨迹保存到 `OUTPUT_DIR` 下独立的 `evaluation_*` 目录。
+
+```bash
+python rl_training/privileged/visualize.py --check  # 只检查，不启动仿真
+python rl_training/privileged/visualize.py          # 打开 Gazebo 观看
+```
+
 地图解析目前支持静态、水平放置的 box 碰撞体，不支持的几何会报错。
 更换地图使用同名 JSON 的出生点和工作边界，并重新验证泛化表现。
 
@@ -33,11 +44,20 @@ PPO、奖励与仿真配置共用 [common/config.py](../common/config.py)。
 编辑 [train_multi_map.py](train_multi_map.py) 顶部的配置，然后运行：
 
 ```bash
+cd /home/zui/dissertation/Gazebo_simulation
+
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source install/setup.bash
+
+# 检查配置，并显示将从哪个模型续训
 python rl_training/privileged/train_multi_map.py --check
+
+# 开始训练
 python rl_training/privileged/train_multi_map.py
 ```
 
-先按总说明加载 ROS/Gazebo 和 `install/setup.bash`。脚本管理自己的仿真，无需手动开 Gazebo。
+检查通过后再执行训练命令。脚本管理自己的仿真，无需手动开 Gazebo。
 `--check` 校验配置、地图和出生点净空，并打印自动选择的续训文件，不启动训练或发布器。
 车辆参数仍由 `CONFIG_HEADER` 指定。
 
