@@ -1,9 +1,10 @@
-# 固定速度小车仿真（develop_1008）
+# 固定速度小车仿真（develop_privilege_RL）
 
 这一版实现可修改标签、仿真/实车共用轮速目标、训练格式的雷达观测。
 电脑使用 ROS 2 + Gazebo Classic，实车后续使用 Teensy 编码器轮速 PID。
 不依赖树莓派、UDP 或 PWM 节点。现已加入 PPO 持续避障巡航训练，使用独立的
-训练/评估仿真，并提供本地与 GitHub Pages 手机进度页。自动采集 RL 数据留待后续。
+训练/评估仿真，并提供本地与 GitHub Pages 手机进度页。本分支默认训练不使用雷达的
+特权教师，旧雷达策略保留为对照。自动采集 RL 数据留待后续。
 
 ## 修改参数
 
@@ -13,7 +14,7 @@
 | 宏 | 默认值 | 含义 |
 | --- | --- | --- |
 | `AICAR_LABEL_COUNT` | 15 | 标签 0～14；直行自动为数量 / 2，即 7 |
-| `AICAR_FORWARD_SPEED_MPS` | 0.1 | 固定的左右轮平均速度，单位 m/s |
+| `AICAR_FORWARD_SPEED_MPS` | 0.2 | 固定的左右轮平均速度，单位 m/s |
 | `AICAR_MAX_WHEEL_SPEED_RATIO` | 0.6 | 最大转向时左右轮相对基础速度的增减比例 |
 | `AICAR_WHEEL_RADIUS_M` | 0.0325 | 轮半径，沿用原模型，需与实车一致 |
 | `AICAR_WHEEL_SEPARATION_M` | 0.11 | 左右轮中心间距，沿用原模型，需与实车一致 |
@@ -50,9 +51,9 @@ s = (直行标签 - 当前标签) / 直行标签
 
 | 标签 | 左轮 m/s | 右轮 m/s | 含义 |
 | --- | --- | --- | --- |
-| 0 | 0.04 | 0.16 | 最大左转 |
-| 7 | 0.10 | 0.10 | 直行 |
-| 14 | 0.16 | 0.04 | 最大右转 |
+| 0 | 0.08 | 0.32 | 最大左转 |
+| 7 | 0.20 | 0.20 | 直行 |
+| 14 | 0.32 | 0.08 | 最大右转 |
 
 后续 PID 直接包含同一份头文件：
 
@@ -71,8 +72,8 @@ const AiCar::WheelTargets target = AiCar::wheelTargets(command);
 ```
 
 Gazebo 只用轮速接口，不模拟电流、PWM、编码器脉冲或 PID 参数。
-`0.1 m/s` 是目标轮速对应的前进速度，实际运动仍可能受打滑等影响，
-可看 `/odom`。实车旧 `CAR_SPEED=100` 是 PWM，不能换算成 `0.1 m/s`。
+`0.2 m/s` 是当前目标轮速对应的前进速度，实际运动仍可能受打滑等影响，
+可看 `/odom`。实车旧 `CAR_SPEED=100` 是 PWM，不能直接换算成 m/s。
 本次未替换实车旧 PWM 程序，PID 尚待后续实现。
 
 ## 雷达输入协议
@@ -88,7 +89,7 @@ Gazebo 只用轮速接口，不模拟电流、PWM、编码器脉冲或 PID 参�
 扫描自身的有效量程，没有再用配置下界额外过滤有效近点。
 
 Gazebo `/scan_raw` 保持 ROS 标准的逆时针弧度、米，仅用于调试。
-RL/机器学习模型使用 `/lidar_distances`：
+雷达基线策略和后续随机森林采集使用 `/lidar_distances`；特权教师不使用该话题：
 
 ```text
 std_msgs/UInt16MultiArray
@@ -211,36 +212,46 @@ ros2 launch my_gazebo_launch train_world.launch.py config_header:=/absolute/path
 
 ```bash
 python3 -m pip install --user -r rl_training/requirements.txt
-python3 rl_training/train_rl.py
+python3 rl_training/train_rl.py --observation-mode privileged
 ```
 
 脚本默认启动 4 个训练 Gazebo（domain 81/83/85/87，端口 11451/11453/11455/11457）
 和 1 个独立评估 Gazebo（domain 82，端口 11452）。无需先启动手动仿真。
 每个动作默认推进 0.2 秒仿真时间，网络更新时物理世界暂停。
-策略只看与实车训练列一致的雷达输入；车身/轮子的接触及里程计只用于训练奖励。
+特权教师输入是 SDF 碰撞地图在车身坐标系下的 17×17 距离场，以及真实前进速度、
+角速度、上一动作，共 292 维。裁剪地图所需位姿由物理步进插件同步返回；不把绝对
+坐标直接送入网络。训练和评估均关闭雷达传感器及转换节点，奖励也不读取雷达。
+目前地图解析支持静态、水平放置的 box 碰撞体；不支持的地图明确报错。
 撞墙或卡住后停车，下一回合明确恢复出生位置、朝向和零速度，不依赖雷达距离
 阈值判定碰撞。加入转向变化、大转向和前方障碍风险惩罚，并检测持续低速、
 小范围反复绕圈和越界。正常 750 步（150 秒仿真时间）作为采样截断。
-训练加速时使用原生 Gazebo 插件核对每个物理步的接触，策略仍只接收雷达输入。
+训练加速时使用原生 Gazebo 插件核对每个物理步的接触。
 独立评估会保存每条轨迹、实际速度和失败原因，不只看奖励是否升高。
 
 车辆参数仍直接读取共享头文件；训练地址、超参数、奖励和卡住阈值集中在
 [rl_training/config.py](rl_training/config.py) 开头。每次训练建立新模型目录并记录
-实际配置，保留旧模型。手机页面的启动和同步方式见下文。
+实际配置，保留旧模型。距离场大小等配置位于 `rl_training/privileged.py` 开头。
+使用 `--observation-mode lidar` 可训练原有雷达基线；评估/续训自动读取模型模式。
+两种输入的模型不能相互直接续训，验收入口也分开保存。
 
-本次在真实 Gazebo 后台验证了接触碰撞与复位、正常时限、独立评估隔离、卡住
-检测、精确仿真步进，以及缺失新雷达时停止报错。已实际训练 PPO 并进行独立
-长时巡航验证，模型、轨迹和实测结果见 [rl_models/README.md](rl_models/README.md)。
-通过长时验证的权重保存在 `rl_models/policies/latest_validated/model.zip`，
+后续随机森林的输入可以只有雷达，但训练还需要教师动作作为标签。届时必须在同一
+车辆状态下配对雷达帧与教师动作，并保持速度、标签含义和时间一致。教师可见的信息
+更多，因此教师成功不代表雷达学生必然能复现所有决策；需要单独检验学生表现。
+
+本次已在 Gazebo 中验证关闭雷达后的真实步进、碰撞与复位，并完成特权 PPO 训练。
+选定的 42,588 步教师通过 8 个扰动起点各 600 秒的巡航，累计约 960 m，零失败，
+每段速度合规率均为 100%。模型、轨迹和完整范围见 [rl_models/README.md](rl_models/README.md)。
+通过长时验证的教师权重保存在 `rl_models/policies/latest_validated_privileged/model.zip`，
 普通训练检查点不会自动替换它。加载环境后观看：
 
 ```bash
-python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated/model.zip \
+python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated_privileged/model.zip \
+  --config-header rl_models/policies/latest_validated_privileged/vehicle_config.h \
   --gui --eval-episodes 1 --episode-steps 1500
 ```
 
 该命令以正常仿真时间运行一段 300 秒巡航，结束后保存报告并关闭本次窗口。
-验证结论针对记录中的地图、车辆配置、噪声和起点，实车部署仍需按实际硬件标定。
+验证结论针对记录中的地图、车辆配置、起点和时长；未来的雷达学生与实车迁移需单独验证。
 
 ## 手机查看训练进度
 

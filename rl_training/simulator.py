@@ -9,6 +9,7 @@ import signal
 import socket
 import subprocess
 import xml.etree.ElementTree as ET
+import math
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -17,7 +18,7 @@ from my_gazebo_launch.config import DEFAULT_ENTITY_NAME
 
 class SimulationProcess:
     def __init__(self, *, domain_id, port, world, header, spawn_pose, seed,
-                 log_path, timeout, gui=False, real_time_factor=0.0):
+                 log_path, timeout, gui=False, real_time_factor=0.0, enable_lidar=True):
         self.domain_id, self.port = domain_id, port
         self.process = None
         self.stepper = None
@@ -49,6 +50,7 @@ class SimulationProcess:
                 f"gui:={str(gui).lower()}", "pause:=true", f"world:={world}",
                 f"real_time_factor:={real_time_factor}", "lockstep:=true",
                 f"training_step_plugin:={step_plugin}",
+                f"enable_lidar:={str(enable_lidar).lower()}",
                 f"config_header:={Path(header).resolve()}", f"seed:={seed}",
                 f"x:={x}", f"y:={y}", f"z:={z}", f"yaw:={yaw}",
             ], env=self.environment, stdout=self.log_file, stderr=subprocess.STDOUT,
@@ -69,9 +71,13 @@ class SimulationProcess:
         self.stepper.stdin.flush()
         result = self._read_stepper(f"ACK {iterations}")
         fields = result.split()
-        if len(fields) != 5:
+        if len(fields) != 11:
             raise RuntimeError(f"物理步进返回数据异常：{result}")
-        return float(fields[2]), bool(int(fields[3])), bool(int(fields[4]))
+        values = list(map(float, fields[2:]))
+        if not all(math.isfinite(v) for v in values):
+            raise RuntimeError("物理真值包含非有限数据。")
+        truth = dict(zip(("x", "y", "yaw", "linear_x", "angular_z", "z"), values[3:]))
+        return values[0], bool(values[1]), bool(values[2]), truth
 
     def _read_stepper(self, expected):
         ready, _, _ = select.select([self.stepper.stdout], [], [], self.timeout)

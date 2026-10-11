@@ -4,9 +4,58 @@
 `Gazebo_simulation/.gitignore` 排除，训练入口和配置见
 [rl_training/README.md](../rl_training/README.md)。
 
-## 已训练模型（2026-10-10）
+## 已验证特权教师（2026-10-11）
 
-推荐使用 [latest_validated/model.zip](policies/latest_validated/model.zip)，当前指向
+本分支使用 [latest_validated_privileged/model.zip](policies/latest_validated_privileged/model.zip)，
+指向 `validated_privileged_42588_20261011_011849/model.zip`。该 PPO 教师使用地图和
+物理真值，训练与验收均关闭雷达。输入是 17×17 局部距离场及前进速度、角速度、
+上一动作，共 292 维；网络为 `[128, 128]` MLP，输出 15 个动作标签，目标速度 0.2 m/s。
+
+共采样 53,792 步，定期评估连续 5 次完成各 3 段、每段 150 秒的巡航。停止继续更新
+权重后，选用 42,588 步的固定检查点进行下列独立长时验收；其他检查点仍保留。
+训练曲线标出选定权重的位置，随机探索回合与确定性策略评估分别统计。
+
+| 独立验收项目 | 实测结果 |
+| --- | --- |
+| 世界 | `train_world3.sdf`，静态碰撞地图，雷达传感器关闭 |
+| 起点与方向 | 8 种位置/朝向，覆盖两个行驶方向 |
+| 扰动 | x/y 各 ±0.06 m、朝向 ±15°；种子 20261012 |
+| 每段时长 | 600 秒仿真时间，达到时限后复位 |
+| 累计距离与时间 | 959.84 m、4,800 秒（80 分钟，8 段之和） |
+| 碰撞 / 卡住 / 局部绕圈 / 低速 / 越界 | 均为 0 |
+| 实际速度 | 每段平均 0.199934～0.200064 m/s；24,000 次采样范围 0.199600～0.200817 m/s |
+| 速度合规率 | 每段 100%，合规范围为目标速度 ±20% |
+| 道路覆盖 | 每段约 11.03～11.06 圈，覆盖完整环形道路 |
+| 保守间距估算 | 以半径 0.085 m 的车体圆盘估算，采样位姿的最小墙间距约 0.0253 m |
+
+物理碰撞检查覆盖每个物理步；间距估算只用于解释采样轨迹，不能代替物理接触检查。
+结果适用于上述地图、车辆配置、起点扰动和测试时长，尚未验证新地图或实车迁移。
+这份教师模型在仿真中提供动作，未来的雷达学生还需要单独训练与验证。
+
+- [验收汇总](policies/latest_validated_privileged/validation_summary.json)与[逐段报告](policies/latest_validated_privileged/validation_1/evaluation.json)
+- [轨迹和实际速度](policies/latest_validated_privileged/validation_1/trajectories.png)与[道路覆盖/间距统计](policies/latest_validated_privileged/validation_1/trajectory_metrics.json)
+- [训练曲线](policies/latest_validated_privileged/training_curve.png)与[曲线数据](policies/latest_validated_privileged/training_curve_data.json)
+
+模型 SHA-256：`e7ca63ac56eaa71e8ccbedfb383ab2f6994761889c6622c7f2d6e9a24a731c16`。
+配置、源码快照及配套奖励归一化状态也在同目录，支持审计和续训。模型保存在本机，
+手机页面同步统计结果与验收图片；本阶段没有采集随机森林数据或覆盖实车头文件。
+
+在 `Gazebo_simulation` 目录观看教师驾驶：
+
+```bash
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source install/setup.bash
+python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated_privileged/model.zip \
+  --config-header rl_models/policies/latest_validated_privileged/vehicle_config.h \
+  --gui --eval-episodes 1 --episode-steps 1500
+```
+
+自动识别特权模式，雷达保持关闭；以正常仿真时间观看 300 秒，结束后关闭窗口。
+
+## 雷达基线模型（2026-10-10）
+
+原有雷达基线为 [latest_validated/model.zip](policies/latest_validated/model.zip)，当前指向
 `validated_257276_20261010_022505/model.zip`。PPO 累计采样 **257,276 步**，
 策略仅接收 200 列雷达距离，输出 0～14 标签；7 为直行，目标前进速度为 0.1 m/s。
 从 3 万步到 25 万步连续 15 次定期评估均完成巡航，近期奖励趋于稳定，随后主动
@@ -46,10 +95,12 @@ source /opt/ros/humble/setup.bash
 source /usr/share/gazebo/setup.bash
 source install/setup.bash
 python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated/model.zip \
+  --config-header rl_models/policies/latest_validated/vehicle_config.h \
   --gui --eval-episodes 1 --episode-steps 1500
 ```
 
-这会以正常仿真时间运行 300 秒，结束后保存报告并关闭本次窗口。
+这会使用该基线保存的 0.1 m/s 配置，以正常仿真时间运行 300 秒；当前共享配置已是
+0.2 m/s，因此验证旧模型需要显式指定其配套头文件。结束后保存报告并关闭本次窗口。
 模型文件和日志仅保存在本机，没有上传。手机进度页仅同步筛选后的统计数据和验收图片。
 未生成随机森林训练集，也未修改实车模型头文件。
 
@@ -58,7 +109,7 @@ python3 rl_training/train_rl.py --evaluate rl_models/policies/latest_validated/m
 ```text
 rl_models/
 ├── policies/
-│   ├── PPO_cruise_时间_随机后缀/
+│   ├── PPO_privileged_时间_随机后缀/ # 特权教师；雷达基线为 PPO_cruise_*
 │   │   ├── run_config.json           # 车辆配置、训练参数、运行状态、实际步数
 │   │   ├── vehicle_config.h          # 本次共享宏快照
 │   │   ├── training_config.py        # 本次训练配置快照
@@ -85,10 +136,11 @@ rl_models/
 │   │   ├── validation_summary.json   # 验证范围、累计距离、速度、失败次数
 │   │   ├── validation_*/             # 完整验证报告与轨迹
 │   │   └── ...                       # 配套配置、源码和 vecnormalize.pkl
-│   ├── latest_validated -> validated_步数_时间/  # 最近通过长时验证的模型
+│   ├── latest_validated_privileged -> validated_privileged_步数_时间/ # 合格特权教师
+│   ├── latest_validated -> validated_步数_时间/  # 合格雷达基线
 │   └── ...                          # 修正前的旧实验仍保留
 ├── logs/
-│   └── PPO_cruise_时间_随机后缀_1/  # TensorBoard 事件
+│   └── PPO_privileged_时间_随机后缀_1/  # TensorBoard 事件，雷达基线为 PPO_cruise_*
 ├── progress/                      # 手机页面、白名单 data.json 和验收图片
 ├── runtime/publisher/             # 独立的 GitHub 页面/进度发布工作区
 └── README.md
@@ -103,6 +155,7 @@ rl_models/
 ```bash
 python3 rl_training/train_rl.py \
   --evaluate rl_models/policies/latest_validated/model.zip \
+  --config-header rl_models/policies/latest_validated/vehicle_config.h \
   --eval-episodes 8 --episode-steps 3000
 ```
 

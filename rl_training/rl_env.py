@@ -38,6 +38,7 @@ from .reward import compute_reward
 from .motion import MotionMonitor
 from .simulator import SimulationProcess
 from .progress_state import LiveState, utc_now
+from .privileged import GroundTruthMap
 
 
 def stamp_ns(stamp):
@@ -49,7 +50,7 @@ class SimulationDataError(RuntimeError):
 
 
 class AicarGazeboNode(Node):
-    def __init__(self, context, vehicle, settings, name):
+    def __init__(self, context, vehicle, settings, name, enable_lidar=True):
         super().__init__(name, context=context, use_global_arguments=False,
                          parameter_overrides=[Parameter("use_sim_time", value=True)])
         self.vehicle, self.settings = vehicle, settings
@@ -67,11 +68,13 @@ class AicarGazeboNode(Node):
         self.action_publisher = self.create_publisher(Int32, LABEL_TOPIC, 10)
         self.sensor_subscriptions = [
             self.create_subscription(Clock, "/clock", self.receive_clock, qos_profile_sensor_data),
-            self.create_subscription(LaserScan, RAW_SCAN_TOPIC, self.receive_scan, qos_profile_sensor_data),
             self.create_subscription(Odometry, "/odom", self.receive_odom, qos_profile_sensor_data),
             self.create_subscription(ContactsState, CONTACT_TOPIC, self.receive_contacts, qos_profile_sensor_data),
             self.create_subscription(Float64MultiArray, WHEEL_TARGET_TOPIC, self.receive_wheels, 10),
         ]
+        if enable_lidar:
+            self.sensor_subscriptions.append(self.create_subscription(
+                LaserScan, RAW_SCAN_TOPIC, self.receive_scan, qos_profile_sensor_data))
         self.heartbeat = self.create_timer(
             settings.command_heartbeat_sec, self.publish_current,
             clock=RosClock(clock_type=ClockType.STEADY_TIME))
@@ -163,13 +166,14 @@ class AicarGazeboNode(Node):
 
 
 class AicarGazeboEnv(gym.Env):
-    """Observation: canonical lidar only. Contact/odom are reward-only signals."""
+    """Selectable lidar baseline or map/physics-only privileged teacher."""
 
     metadata = {"render_modes": []}
 
     def __init__(self, *, role="train", domain_id=None, port=None, header=None,
                  world=None, spawn_pose=None, seed=config.SEED, log_dir=None,
-                 settings=None, reward_settings=None, gui=False, real_time_factor=0.0):
+                 settings=None, reward_settings=None, gui=False, real_time_factor=0.0,
+                 observation_mode="lidar", privileged_settings=None):
         super().__init__()
         if role not in ("train", "eval"):
             raise ValueError("role 必须为 train 或 eval。")
@@ -182,11 +186,19 @@ class AicarGazeboEnv(gym.Env):
         self.port = port if port is not None else (
             config.TRAIN_GAZEBO_PORT if role == "train" else config.EVAL_GAZEBO_PORT)
         self.spawn_pose = tuple(spawn_pose or config.SPAWN_POSE)
-        self.observation_space = spaces.Box(0., 1., (self.vehicle.lidar_point_count,), np.float32)
+        if observation_mode not in ("lidar", "privileged"):
+            raise ValueError("observation_mode 必须为 lidar 或 privileged。")
+        self.observation_mode = observation_mode
+        self.ground_truth_map = (GroundTruthMap(world or config.WORLD, privileged_settings)
+                                 if observation_mode == "privileged" else None)
+        self.observation_space = (spaces.Box(-1.,1.,(self.ground_truth_map.settings.dimension,),np.float32)
+                                  if self.ground_truth_map else
+                                  spaces.Box(0.,1.,(self.vehicle.lidar_point_count,),np.float32))
+        self.truth = None
         self.action_space = spaces.Discrete(self.vehicle.label_count)
         # A full fresh scan must fit inside each fixed physics step interval.
-        period = max(self.settings.step_sim_sec,
-                     1 / self.vehicle.lidar_scan_hz + self.vehicle.sim_time_step_sec)
+        period = (self.settings.step_sim_sec if self.ground_truth_map else max(
+            self.settings.step_sim_sec, 1 / self.vehicle.lidar_scan_hz + self.vehicle.sim_time_step_sec))
         self.iterations = math.ceil(period / self.vehicle.sim_time_step_sec)
         self.step_sim_sec = self.iterations * self.vehicle.sim_time_step_sec
         self._closed = False
@@ -201,7 +213,7 @@ class AicarGazeboEnv(gym.Env):
         self.step_contact = (False, False)
         self.motion = MotionMonitor(self.settings, self.vehicle.forward_speed_mps)
         log_dir = Path(log_dir) if log_dir else config.RL_MODEL_DIR / "runtime"
-        self.progress = LiveState(log_dir / "live_state.json", role=role,
+        self.progress = LiveState(log_dir / "live_state.json", role=role, observation_mode=observation_mode,
                                   max_episode_sim_sec=self.settings.max_steps * self.step_sim_sec)
         self.progress.update(force=True, phase="starting", episode_number=0)
         try:
@@ -210,7 +222,8 @@ class AicarGazeboEnv(gym.Env):
             os.environ.setdefault("ROS_LOCALHOST_ONLY", "1")
             rclpy.init(context=self.context, domain_id=self.domain_id,
                        signal_handler_options=SignalHandlerOptions.NO)
-            self.node = AicarGazeboNode(self.context, self.vehicle, self.settings, f"aicar_rl_{role}")
+            self.node = AicarGazeboNode(self.context, self.vehicle, self.settings, f"aicar_rl_{role}",
+                                        enable_lidar=not bool(self.ground_truth_map))
             self.executor = SingleThreadedExecutor(context=self.context)
             self.executor.add_node(self.node)
             self.thread = threading.Thread(target=self.executor.spin, daemon=True)
@@ -219,7 +232,7 @@ class AicarGazeboEnv(gym.Env):
                 domain_id=self.domain_id, port=self.port, world=world or config.WORLD,
                 header=header or config.CONFIG_HEADER, spawn_pose=self.spawn_pose, seed=seed,
                 log_path=log_dir / f"gazebo_{role}.log", timeout=self.settings.data_timeout_sec,
-                gui=gui, real_time_factor=real_time_factor)
+                gui=gui, real_time_factor=real_time_factor, enable_lidar=not bool(self.ground_truth_map))
             self.pause_client = self.node.create_client(Empty, "/pause_physics")
             self.reset_client = self.node.create_client(Empty, "/reset_world")
             self.models_client = self.node.create_client(GetModelList, "/get_model_list")
@@ -282,7 +295,7 @@ class AicarGazeboEnv(gym.Env):
     def _advance(self, iterations):
         start_ns = self._physics_ns
         end_ns = start_ns + round(iterations * self.vehicle.sim_time_step_sec * 1e9)
-        actual_time, collided, current_contact = self.simulator.advance(iterations)
+        actual_time, collided, current_contact, self.truth = self.simulator.advance(iterations)
         if abs(round(actual_time * 1e9) - end_ns) > 1000:
             raise SimulationDataError("物理步进时间与预期不符。")
         self.step_contact = (collided, current_contact)
@@ -293,6 +306,10 @@ class AicarGazeboEnv(gym.Env):
         return start_ns, end_ns
 
     def _snapshot(self, start_ns, end_ns):
+        if self.ground_truth_map:
+            if self.truth is None or self._physics_ns != end_ns:
+                raise SimulationDataError("缺少本次物理步进的精确真值。")
+            return None, dict(self.truth), self.step_contact[0], None, end_ns
         age_ns = round(self.settings.state_max_age_sec * 1e9)
         # Sensor timestamps must be within this action, not left over from reset.
         self._await(
@@ -310,6 +327,8 @@ class AicarGazeboEnv(gym.Env):
             return distances.copy(), dict(odom), self.step_contact[0], lidar_stamp, odom_stamp
 
     def _observation(self, lidar_mm):
+        if self.ground_truth_map:
+            return self.ground_truth_map.observation(self.truth,self.previous_action,self.vehicle)
         return (lidar_mm.astype(np.float32) / self.vehicle.lidar_max_distance_mm).astype(np.float32)
 
     def reset(self, *, seed=None, options=None):
@@ -356,6 +375,7 @@ class AicarGazeboEnv(gym.Env):
                                  sim_duration_sec=0., distance_m=0., speed_mps=0.,
                                  action=None, reason="", step=0)
             return self._observation(lidar), {
+                "observation_mode": self.observation_mode,
                 "position": self.previous_position, "sim_time": end / 1e9,
                 "yaw": odom["yaw"],
                 "lidar_stamp_ns": lidar_ns, "odom_stamp_ns": odom_ns,
@@ -386,16 +406,21 @@ class AicarGazeboEnv(gym.Env):
             stuck, slow, looping, outside = (motion[k] for k in ("stuck", "slow", "looping", "out_of_bounds"))
             terminated = collided or stuck or slow or looping or outside
             truncated = not terminated and self.current_step >= self.settings.max_steps
+            safety = {}
+            if self.ground_truth_map:
+                clearance, front_clearance = self.ground_truth_map.safety_distances(odom)
+                safety = {"clearance_m": clearance, "front_clearance_m": front_clearance}
             reward, terms = compute_reward(
                 lidar, linear_velocity=odom["linear_x"], distance_moved=distance, sim_dt=dt,
                 action=action, previous_action=self.previous_action, vehicle=self.vehicle,
                 collided=collided, stuck=stuck, looping=looping, slow=slow,
-                out_of_bounds=outside, settings=self.reward_settings)
+                out_of_bounds=outside, settings=self.reward_settings, **safety)
             self.episode_return += reward
             self.previous_position, self.previous_action = position, action
             reason = ("collision" if collided else "stuck" if stuck else "looping" if looping
                       else "slow" if slow else "out_of_bounds" if outside else "time_limit" if truncated else "")
             info = {
+                "observation_mode": self.observation_mode, **safety,
                 "step": self.current_step, "position": position, "linear_velocity": odom["linear_x"],
                 "angular_velocity": odom["angular_z"], "collided": collided, "stuck": stuck,
                 "yaw": odom["yaw"], "action": action, **motion,
@@ -404,7 +429,7 @@ class AicarGazeboEnv(gym.Env):
                 "is_success": bool(truncated), "episode_return": self.episode_return,
                 "episode_distance_m": self.episode_distance, "episode_sim_time_sec": self.episode_sim_time,
                 "sim_dt": dt, "sim_time": end / 1e9, "lidar_stamp_ns": lidar_ns,
-                "odom_stamp_ns": odom_ns, "lidar_ready": True, "reward_terms": terms,
+                "odom_stamp_ns": odom_ns, "lidar_ready": not bool(self.ground_truth_map), "reward_terms": terms,
             }
             if terminated or truncated:
                 self._command(self.vehicle.stop_command)

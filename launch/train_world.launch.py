@@ -14,6 +14,7 @@ from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch.conditions import IfCondition
 
 from my_gazebo_launch.config import (
     DEFAULT_CONFIG_HEADER, DEFAULT_ENTITY_NAME, DEFAULT_SPAWN_X, DEFAULT_SPAWN_Y,
@@ -37,7 +38,8 @@ def _start(context):
     world = world_arg if world_arg.is_absolute() else share / world_arg
     if not world.is_file():
         raise FileNotFoundError(f"World file not found: {world}")
-    description = render_robot(share / DEFAULT_URDF, config)
+    enable_lidar = IfCondition(LaunchConfiguration("enable_lidar")).evaluate(context)
+    description = render_robot(share / DEFAULT_URDF, config, enable_lidar=enable_lidar)
     models = [str(share / "models"), str(share / "sdf")]
     if GAZEBO_SYSTEM_MODEL_DIR.is_dir():
         models.append(str(GAZEBO_SYSTEM_MODEL_DIR))
@@ -84,6 +86,7 @@ def _start(context):
         Node(package="my_gazebo_launch", executable="action_controller",
              parameters=[common], output="screen"),
         Node(package="my_gazebo_launch", executable="lidar_adapter",
+             condition=IfCondition(LaunchConfiguration("enable_lidar")),
              parameters=[common], output="screen"),
     ]
 
@@ -92,6 +95,7 @@ def generate_launch_description():
     defaults = {
         "config_header": str(DEFAULT_CONFIG_HEADER), "world": DEFAULT_WORLD,
         "gui": "true",
+        "enable_lidar": "true",
         "pause": "false", "seed": "42",
         "lockstep": "false",
         "training_step_plugin": "",

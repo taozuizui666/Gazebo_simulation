@@ -196,16 +196,22 @@ class SnapshotBuilder:
         steps = meta.get("training_timesteps", status.get("training_timesteps", 0)) if terminal else status.get("training_timesteps", 0)
         return {
             "id": path.name, "started_at": meta.get("started_at"), "ended_at": meta.get("ended_at"),
+            "observation_mode": meta.get("observation_mode", "lidar"),
+            "observation_spec": meta.get("observation_spec"),
             "status": meta.get("status") if terminal or running else "stale", "is_running": running,
             "updated_at": updated, "phase": status.get("phase", "finished" if terminal else "collecting"),
             "steps": steps, "start_steps": meta.get("start_timesteps", 0),
             "target_steps": meta.get("target_total_timesteps", meta.get("requested_timesteps")),
             "elapsed_wall_sec": max(0, epoch(meta.get("ended_at"))-epoch(meta.get("started_at")))
                                 if terminal else status.get("elapsed_wall_sec"),
+            "time_budget_sec": status.get("time_budget_sec", number(args.get("hours"), 0.) * 3600),
+            "remaining_wall_sec": status.get("remaining_wall_sec") if not terminal else None,
+            "training_deadline": status.get("training_deadline"),
             "samples_per_sec": status.get("steps_per_second"), "total_episodes": total,
             "episode_limit_sec": environment.get("max_steps", 0) * math.ceil(
-                max(environment.get("step_sim_sec", .2), 1 / vehicle.get("lidar_scan_hz", 5.5)
-                    + vehicle.get("sim_time_step_sec", .001)) / vehicle.get("sim_time_step_sec", .001))
+                (environment.get("step_sim_sec", .2) if meta.get("observation_mode") == "privileged" else
+                 max(environment.get("step_sim_sec", .2), 1 / vehicle.get("lidar_scan_hz", 5.5)
+                     + vehicle.get("sim_time_step_sec", .001))) / vehicle.get("sim_time_step_sec", .001))
                 * vehicle.get("sim_time_step_sec", .001),
             "num_envs": args.get("num_envs"), "world": Path(str(args.get("world", ""))).name,
             "vehicle": vehicle, "environment": environment, "ppo": meta.get("ppo", {}),
@@ -216,7 +222,9 @@ class SnapshotBuilder:
         }
 
     def validation(self):
-        path = self.models_dir / "latest_validated"
+        path = self.models_dir / "latest_validated_privileged"
+        if not path.exists():
+            path = self.models_dir / "latest_validated"
         summary = self.read_json(path / "validation_summary.json")
         meta = self.read_json(path / "run_config.json")
         if not summary or not meta:
@@ -246,6 +254,8 @@ class SnapshotBuilder:
         stats = episode_stats(episodes)
         return {
             "id": path.resolve().name, "verified": matches, "sha256": digest,
+            "observation_mode": meta.get("observation_mode", "lidar"),
+            "observation_spec": meta.get("observation_spec"),
             "training_run": meta.get("run_id"), "steps": summary.get("training_timesteps"),
             "updated_at": iso((path / "validation_summary.json").stat().st_mtime),
             "stats": stats, "episodes": episodes, "reports": reports,
@@ -268,6 +278,7 @@ class SnapshotBuilder:
             entries = [e for row in data.get("episodes", []) if (e := public_episode(row))]
             evaluations.append({
                 "id": path.parent.name, "status": data.get("status") if data.get("status") != "running" or running else "stale",
+                "observation_mode": data.get("observation_mode", "lidar"),
                 "is_running": running, "updated_at": updated, "model_name": data.get("model_name"),
                 "model_sha256": data.get("model_sha256"), "model_run": data.get("model_run"),
                 "completed_episodes": len(entries), "total_episodes": data.get("total_episodes"),
@@ -278,7 +289,8 @@ class SnapshotBuilder:
 
     def build(self):
         self.media = {}
-        candidates = sorted(self.models_dir.glob("PPO_cruise_*/run_config.json"), reverse=True)[:cfg.MAX_RUNS]
+        candidates = sorted(self.models_dir.glob("PPO_*/run_config.json"),
+                            key=lambda p: p.stat().st_mtime, reverse=True)[:cfg.MAX_RUNS]
         runs = [r for p in candidates if (r := self.training_run(p.parent))]
         runs.sort(key=lambda r: (r["is_running"], epoch(r.get("started_at"))), reverse=True)
         validation = self.validation()

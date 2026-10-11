@@ -13,13 +13,11 @@
 std::mutex result_mutex;
 std::condition_variable result_changed;
 bool received = false;
-double sim_time = 0., collided = 0., current = 0.;
+std::string result_values;
 
-void Receive(ConstVector3dPtr &message) {
+void Receive(ConstGzStringPtr &message) {
   std::lock_guard<std::mutex> lock(result_mutex);
-  sim_time = message->x();
-  collided = message->y();
-  current = message->z();
+  result_values = message->data();
   received = true;
   result_changed.notify_all();
 }
@@ -47,7 +45,7 @@ int main(int argc, char **argv) {
     std::unique_lock<std::mutex> lock(result_mutex);
     if (!result_changed.wait_for(lock, std::chrono::seconds(30), [] { return received; })) return 5;
     std::cout << std::setprecision(15) << "ACK " << iterations << " "
-              << sim_time << " " << collided << " " << current << std::endl;
+              << result_values << std::endl;
   }
   node->Fini();
   gazebo::client::shutdown();

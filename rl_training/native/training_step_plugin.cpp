@@ -1,5 +1,5 @@
 // Exact paused steps and physical contact ground truth, independent of the
-// asynchronous ROS bumper sensors. These signals are never policy inputs.
+// asynchronous ROS sensors. Privileged policies may consume the returned pose.
 #include <gazebo/gazebo.hh>
 #include <gazebo/physics/physics.hh>
 #include <gazebo/transport/transport.hh>
@@ -8,6 +8,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <iomanip>
 
 namespace gazebo {
 class TrainingStepPlugin : public WorldPlugin {
@@ -24,7 +25,7 @@ class TrainingStepPlugin : public WorldPlugin {
     manager_->SetNeverDropContacts(true);
     node_.reset(new transport::Node());
     node_->Init(world_->Name());
-    result_ = node_->Advertise<msgs::Vector3d>("~/aicar/step_result");
+    result_ = node_->Advertise<msgs::GzString>("~/aicar/step_result");
     update_ = event::Events::ConnectWorldUpdateEnd(std::bind(&TrainingStepPlugin::OnUpdate, this));
     request_ = node_->Subscribe("~/aicar/step", &TrainingStepPlugin::OnStep, this);
   }
@@ -62,13 +63,27 @@ class TrainingStepPlugin : public WorldPlugin {
     }
     world_->SetPaused(true);
     world_->Step(iterations);
-    msgs::Vector3d result;
+    msgs::GzString result;
+    std::ostringstream values;
+    const auto car = world_->ModelByName(entity_);
+    if (!car) {
+      result.set_data("ERROR missing vehicle");
+      result_->Publish(result, true);
+      return;
+    }
+    // The physics world is paused here: contacts, pose and velocity belong to
+    // exactly the same completed step, not asynchronous/stale ROS messages.
+    const auto pose = car->WorldPose();
+    const auto velocity = pose.Rot().RotateVectorReverse(car->WorldLinearVel());
     {
       std::lock_guard<std::mutex> lock(contacts_mutex_);
-      result.set_x(world_->SimTime().Double());
-      result.set_y(collided_ ? 1.0 : 0.0);
-      result.set_z(current_ ? 1.0 : 0.0);
+      values << std::setprecision(17) << world_->SimTime().Double() << " "
+             << collided_ << " " << current_ << " "
+             << pose.Pos().X() << " " << pose.Pos().Y() << " "
+             << pose.Rot().Yaw() << " " << velocity.X() << " "
+             << car->WorldAngularVel().Z() << " " << pose.Pos().Z();
     }
+    result.set_data(values.str());
     result_->WaitForConnection(common::Time(5, 0));
     result_->Publish(result, true);
   }

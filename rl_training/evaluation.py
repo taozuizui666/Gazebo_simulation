@@ -7,6 +7,7 @@ from io import BytesIO
 import json
 import math
 from pathlib import Path
+import time
 from uuid import uuid4
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from ament_index_python.packages import get_package_share_directory
 from . import config
 from .rl_env import AicarGazeboEnv
 from .progress_state import LiveState
+from .privileged import observation_specification
 
 
 class EvaluationScenarios(gym.Wrapper):
@@ -99,6 +101,7 @@ def evaluate_model(args):
         raise ValueError("起点/朝向扰动必须为非负有限值。")
     vehicle = config.vehicle_config(args.config_header)
     saved_path = args.evaluate.parent / "run_config.json"
+    saved = {}
     if saved_path.exists():
         saved = json.loads(saved_path.read_text())
         if saved["vehicle"] != asdict(vehicle):
@@ -110,7 +113,11 @@ def evaluate_model(args):
     model_bytes = args.evaluate.read_bytes()
     model_digest = hashlib.sha256(model_bytes).hexdigest()
     model = PPO.load(BytesIO(model_bytes), device=config.DEVICE)
-    if model.observation_space.shape != (vehicle.lidar_point_count,) or model.action_space.n != vehicle.label_count:
+    mode = saved.get("observation_mode", "lidar")
+    spec = observation_specification(mode, vehicle)
+    if saved.get("observation_spec", spec) != spec:
+        raise ValueError("模型观测配置与当前距离场/雷达定义不一致。")
+    if model.observation_space.shape != (spec["dimension"],) or model.action_space.n != vehicle.label_count:
         raise ValueError("模型输入/动作空间与共享配置不同。")
     settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps).validate()
     directory = args.output_dir / f"evaluation_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
@@ -122,13 +129,17 @@ def evaluate_model(args):
                          model_run=args.evaluate.parent.resolve().name, model_sha256=model_digest,
                          world=args.world, vehicle=asdict(vehicle), settings=asdict(settings),
                          total_episodes=args.eval_episodes, pose_jitter_m=args.eval_jitter_m,
-                         pose_jitter_deg=args.eval_jitter_deg)
+                         pose_jitter_deg=args.eval_jitter_deg, observation_mode=mode)
     progress.update(force=True, status="running", episodes=[])
     try:
         env = AicarGazeboEnv(role="eval", domain_id=args.eval_domain, port=args.eval_port,
                              header=args.config_header, world=args.world, seed=args.seed,
                              log_dir=directory, settings=settings, gui=args.gui,
-                             real_time_factor=1.0 if args.gui else 0.0)
+                             real_time_factor=1.0 if args.gui else 0.0, observation_mode=mode)
+        if args.gui:
+            # The GUI can still publish its initial pause/control messages after
+            # the model is spawned. Let it settle before the first paused step.
+            time.sleep(config.GUI_STARTUP_SETTLE_SEC)
         for index in range(args.eval_episodes):
             x, y, z, yaw = config.EVAL_SPAWN_POSES[index % len(config.EVAL_SPAWN_POSES)]
             env.spawn_pose = (
@@ -136,6 +147,7 @@ def evaluate_model(args):
                 y + random.uniform(-args.eval_jitter_m, args.eval_jitter_m), z,
                 yaw + math.radians(random.uniform(-args.eval_jitter_deg, args.eval_jitter_deg)))
             obs, initial = env.reset(seed=args.seed + index)
+            episode_started = time.monotonic()
             trace = [[0., *initial["position"], initial["yaw"], 0., vehicle.straight_label, 0.]]
             while True:
                 action, _ = model.predict(obs, deterministic=True)
@@ -149,6 +161,7 @@ def evaluate_model(args):
                 "reason": info["termination_reason"], "steps": info["step"],
                 "reward": info["episode_return"], "distance_m": info["episode_distance_m"],
                 "sim_duration_sec": info["episode_sim_time_sec"],
+                "wall_duration_sec": time.monotonic() - episode_started,
                 "mean_speed_mps": info["episode_mean_speed_mps"],
                 "speed_compliance": info["speed_compliance"], "success": info["is_success"],
                 "collided": info["collided"], "stuck": info["stuck"], "looping": info["looping"],
@@ -170,6 +183,10 @@ def evaluate_model(args):
     reasons = {reason: sum(e["reason"] == reason for e in episodes)
                for reason in ("time_limit", "collision", "stuck", "looping", "slow", "out_of_bounds")}
     report = {
+        "observation_mode": mode, "observation_spec": spec,
+        "gui": args.gui,
+        "lidar_sensor_enabled": mode == "lidar",
+        "world_sha256": env.ground_truth_map.sha256 if env.ground_truth_map else None,
         "model": str(args.evaluate.resolve()), "model_sha256": model_digest,
         "world": args.world, "seed": args.seed, "vehicle": asdict(vehicle), "settings": asdict(settings),
         "pose_jitter_m": args.eval_jitter_m, "pose_jitter_deg": args.eval_jitter_deg,

@@ -25,7 +25,11 @@ LATEST_VALIDATED_NAME = "latest_validated"
 
 
 def qualify(model_path, report_paths, output_dir):
-    latest = output_dir / LATEST_VALIDATED_NAME
+    source = model_path.parent
+    metadata = json.loads((source / "run_config.json").read_text())
+    mode = metadata.get("observation_mode", "lidar")
+    latest_name = "latest_validated_privileged" if mode == "privileged" else LATEST_VALIDATED_NAME
+    latest = output_dir / latest_name
     if latest.exists() and not latest.is_symlink():
         raise ValueError(f"固定模型入口已被普通文件/目录占用：{latest}")
     model_bytes = model_path.read_bytes()
@@ -36,6 +40,11 @@ def qualify(model_path, report_paths, output_dir):
         episodes = report["episodes"]
         if report["model_sha256"] != digest:
             raise ValueError(f"{path}: 报告与待保存的模型不是同一份权重。")
+        if report.get("observation_mode", "lidar") != mode or report.get("vehicle") != metadata["vehicle"]:
+            raise ValueError(f"{path}: 验收的观测模式或车辆配置与模型不符。")
+        if mode == "privileged" and (report.get("lidar_sensor_enabled") is not False
+                                     or report.get("observation_spec") != metadata["observation_spec"]):
+            raise ValueError(f"{path}: 特权模型必须以相同地图观测且关闭雷达进行验收。")
         if (not report["passed"] or len(episodes) < MIN_EPISODES_PER_REPORT
                 or len({e["scenario"] for e in episodes}) < MIN_SCENARIOS_PER_REPORT):
             raise ValueError(f"{path}: 多起点验证未达标。")
@@ -50,8 +59,6 @@ def qualify(model_path, report_paths, output_dir):
         raise ValueError("至少提供一份独立验证报告。")
     with ZipFile(BytesIO(model_bytes)) as archive:
         steps = int(json.loads(archive.read("data"))["num_timesteps"])
-    source = model_path.parent
-    metadata = json.loads((source / "run_config.json").read_text())
     # Reward normalization is not used for inference, but retain the matching
     # state for an actual training continuation.
     normalizer = source / f"rl_policy_vecnormalize_{steps}_steps.pkl"
@@ -59,7 +66,8 @@ def qualify(model_path, report_paths, output_dir):
         normalizer = source / ("best_vecnormalize.pkl" if model_path.name == "best_model.zip" else "vecnormalize.pkl")
     if not normalizer.exists():
         raise FileNotFoundError(f"缺少配套续训状态：{normalizer}")
-    name = f"validated_{steps}_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}"
+    prefix = "validated_privileged" if mode == "privileged" else "validated"
+    name = f"{prefix}_{steps}_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}"
     directory = output_dir / name
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "model.zip").write_bytes(model_bytes)
@@ -76,11 +84,12 @@ def qualify(model_path, report_paths, output_dir):
     for index, path in enumerate(report_paths, 1):
         target = directory / f"validation_{index}"
         target.mkdir()
-        for name in ("evaluation.json", "trajectories.png", "trajectories.npz"):
+        for name in ("evaluation.json", "trajectories.png", "trajectories.npz", "trajectory_metrics.json"):
             if (path.parent / name).exists():
                 shutil.copy2(path.parent / name, target / name)
     episodes = [entry for report in reports for entry in report["episodes"]]
     summary = {
+        "observation_mode": mode,
         "model_sha256": digest, "training_timesteps": steps, "episodes": len(episodes),
         "simulation_seconds": sum(e["sim_duration_sec"] for e in episodes),
         "distance_m": sum(e["distance_m"] for e in episodes),
@@ -93,7 +102,7 @@ def qualify(model_path, report_paths, output_dir):
     }
     (directory / "validation_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     # Keep a stable local inference path, while preserving every frozen model.
-    temporary = output_dir / f".{LATEST_VALIDATED_NAME}_{uuid4().hex}.tmp"
+    temporary = output_dir / f".{latest_name}_{uuid4().hex}.tmp"
     temporary.symlink_to(directory.name, target_is_directory=True)
     temporary.replace(latest)
     print(f"已冻结通过验证的模型：{directory}")

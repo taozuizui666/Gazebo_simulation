@@ -33,6 +33,7 @@ from rl_training.rl_env import AicarGazeboEnv
 from rl_training.vector_env import CruiseSubprocVecEnv
 from rl_training.progress_config import LOCAL_UPDATE_SEC
 from rl_training.progress_state import LiveState
+from rl_training.privileged import observation_specification, GroundTruthMap
 
 
 def write_metadata(path, data):
@@ -79,6 +80,7 @@ class CruiseMetricsCallback(BaseCallback):
         self.budget_reached = False
         self.stop_requested = False
         self.started = self.last_status = time.monotonic()
+        self.deadline = time.time() + max_seconds
         self.progress = LiveState(directory / "training_status.json")
         self.phase = "collecting"
 
@@ -89,6 +91,10 @@ class CruiseMetricsCallback(BaseCallback):
         steps = self.num_timesteps if steps is None else steps
         self.progress.update(force=force, status=status, phase=self.phase,
                              training_timesteps=steps, elapsed_wall_sec=elapsed,
+                             time_budget_sec=self.max_seconds,
+                             remaining_wall_sec=max(0., self.max_seconds - elapsed),
+                             training_deadline=datetime.fromtimestamp(
+                                 self.deadline, ZoneInfo("Asia/Shanghai")).isoformat(),
                              steps_per_second=(steps - self.start_steps) / max(elapsed, 1e-6),
                              recent_episodes=len(self.episodes), metrics=means)
 
@@ -159,7 +165,7 @@ def make_env(role, args, settings, directory, rank=0):
         spawn_pose=config.TRAIN_SPAWN_POSES[rank % len(config.TRAIN_SPAWN_POSES)]
                    if role == "train" else config.EVAL_SPAWN_POSES[0],
         seed=args.seed + rank if role == "train" else args.seed + 1000,
-        log_dir=env_dir, settings=settings)
+        log_dir=env_dir, settings=settings, observation_mode=args.observation_mode)
     if role == "eval":
         env = EvaluationScenarios(env)
     return Monitor(env, filename=str(env_dir / "episodes"), info_keywords=(
@@ -182,11 +188,14 @@ def run_training(args):
         raise ValueError("rollout-steps × num-envs 必须是 BATCH_SIZE 的整数倍。")
     settings = replace(config.EnvironmentSettings(), max_steps=args.episode_steps).validate()
     vehicle = config.vehicle_config(args.config_header)
-    run_id = f"PPO_cruise_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
+    prefix = "PPO_privileged" if args.observation_mode == "privileged" else "PPO_cruise"
+    run_id = f"{prefix}_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
     directory = args.output_dir / run_id
     directory.mkdir(parents=True)
     metadata = {
-        "schema_version": 2, "task": "continuous_obstacle_avoiding_cruise", "run_id": run_id,
+        "schema_version": 3, "task": "continuous_obstacle_avoiding_cruise", "run_id": run_id,
+        "observation_mode": args.observation_mode,
+        "observation_spec": observation_specification(args.observation_mode, vehicle),
         "status": "starting", "requested_timesteps": args.timesteps,
         "config_header": str(args.config_header.resolve()), "vehicle": asdict(vehicle),
         "environment": asdict(settings), "reward": asdict(config.RewardSettings()),
@@ -195,17 +204,23 @@ def run_training(args):
         "ppo": {name: getattr(config, name) for name in (
             "LEARNING_RATE", "BATCH_SIZE", "N_EPOCHS", "GAMMA", "GAE_LAMBDA", "CLIP_RANGE",
             "ENTROPY_COEFF", "VALUE_COEFF", "MAX_GRAD_NORM", "POLICY_NET_ARCH")},
-        "observation_preprocessing": "canonical_mm / max_mm; policy sqrt; lidar only",
+        "observation_preprocessing": ("static world signed-distance field and exact physics state; no lidar"
+                                      if args.observation_mode == "privileged" else
+                                      "canonical_mm / max_mm; policy sqrt; lidar only"),
         "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
         "source_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in Path(__file__).parent.glob("*.py")},
         "started_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
     }
+    if args.observation_mode == "privileged":
+        geometry = GroundTruthMap(args.world)
+        metadata["world_geometry"] = {"sha256": geometry.sha256, "static_boxes": len(geometry.centers)}
     shutil.copy2(args.config_header, directory / "vehicle_config.h")
     shutil.copy2(Path(config.__file__), directory / "training_config.py")
     snapshot_sources(directory, args.world)
     write_metadata(directory / "run_config.json", metadata)
-    print(f"巡航训练：标签 0～{vehicle.label_count-1}，雷达 {vehicle.lidar_point_count} 列，"
+    print(f"巡航训练：模式 {args.observation_mode}，标签 0～{vehicle.label_count-1}，"
+          f"输入 {metadata['observation_spec']['dimension']} 维，"
           f"目标速度 {vehicle.forward_speed_mps} m/s", flush=True)
     print(f"{args.num_envs} 个独立训练仿真，domains={domains}；评估 domain={args.eval_domain}", flush=True)
     print(f"模型目录：{directory}", flush=True)
@@ -218,9 +233,13 @@ def run_training(args):
         training = vector  # still close the owned servers if normalizer/model loading fails
         if args.resume is not None:
             saved = json.loads((args.resume.parent / "run_config.json").read_text())
-            if saved.get("schema_version") != 2:
+            if saved.get("schema_version") not in (2, 3):
                 vector.close()
                 raise ValueError("续训要求本版巡航模型。")
+            if saved.get("observation_mode", "lidar") != args.observation_mode:
+                raise ValueError("雷达策略与特权教师的输入不同，不能直接混用 --resume。")
+            if saved.get("observation_spec", metadata["observation_spec"]) != metadata["observation_spec"]:
+                raise ValueError("续训要求相同观测维度、网格范围和归一化定义。")
             if saved["vehicle"] != asdict(vehicle):
                 if not args.resume_allow_vehicle_change:
                     vector.close()
@@ -250,13 +269,16 @@ def run_training(args):
                              tensorboard_log=str(args.log_dir), n_steps=args.rollout_steps)
             model.set_random_seed(args.seed)
         else:
+            policy_kwargs = {"net_arch": config.POLICY_NET_ARCH}
+            if args.observation_mode == "lidar":
+                policy_kwargs["features_extractor_class"] = LidarFeatures
             model = PPO(
                 "MlpPolicy", training, learning_rate=config.LEARNING_RATE,
                 n_steps=args.rollout_steps, batch_size=config.BATCH_SIZE, n_epochs=config.N_EPOCHS,
                 gamma=config.GAMMA, gae_lambda=config.GAE_LAMBDA, clip_range=config.CLIP_RANGE,
                 ent_coef=config.ENTROPY_COEFF, vf_coef=config.VALUE_COEFF,
                 max_grad_norm=config.MAX_GRAD_NORM,
-                policy_kwargs={"net_arch": config.POLICY_NET_ARCH, "features_extractor_class": LidarFeatures},
+                policy_kwargs=policy_kwargs,
                 seed=args.seed, device=config.DEVICE, verbose=1, tensorboard_log=str(args.log_dir))
         budget = CruiseMetricsCallback(directory, args.hours * 3600, model.num_timesteps)
         evaluation_callback = CruiseEvalCallback(
@@ -324,6 +346,8 @@ def main():
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--config-header", type=Path, default=config.CONFIG_HEADER)
     parser.add_argument("--world", default=config.WORLD)
+    parser.add_argument("--observation-mode", choices=("privileged", "lidar"),
+                        help="新训练默认特权地图真值；评估/续训默认自动读取模型记录的模式")
     parser.add_argument("--train-domain", type=int, default=config.TRAIN_ROS_DOMAIN)
     parser.add_argument("--eval-domain", type=int, default=config.EVAL_ROS_DOMAIN)
     parser.add_argument("--train-port", type=int, default=config.TRAIN_GAZEBO_PORT)
@@ -342,6 +366,16 @@ def main():
         parser.error("--evaluate 和 --resume 不能同时使用")
     if args.gui and args.evaluate is None:
         parser.error("--gui 用于 --evaluate 可视化验证")
+    model_path = args.evaluate or args.resume
+    if model_path is not None:
+        metadata_path = model_path.parent / "run_config.json"
+        saved = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+        saved_mode = saved.get("observation_mode", "lidar")
+        if args.observation_mode is not None and args.observation_mode != saved_mode:
+            parser.error("观测模式与已保存模型不符；特权教师应新建训练，不能直接续用雷达网络。")
+        args.observation_mode = saved_mode
+    else:
+        args.observation_mode = args.observation_mode or config.OBSERVATION_MODE
     torch.set_num_threads(config.TORCH_THREADS)
     if args.evaluate is not None:
         evaluate_model(args)

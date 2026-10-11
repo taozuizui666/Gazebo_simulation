@@ -16,7 +16,7 @@ def _text(parent, name, value):
     return element
 
 
-def render_robot(template, config):
+def render_robot(template, config, enable_lidar=True):
     root = ET.parse(Path(template)).getroot()
     for name, side in (("left_wheel", 1), ("right_wheel", -1)):
         joint = root.find(f"./joint[@name='{name}']")
@@ -89,6 +89,8 @@ def render_robot(template, config):
     _text(laser_plugin, "frame_name", "lidar_link")
     _text(laser_plugin, "output_type", "sensor_msgs/LaserScan")
     _text(laser_plugin.find("ros"), "remapping", f"~/out:={RAW_SCAN_TOPIC}")
+    if not enable_lidar:
+        root.find("./gazebo[@reference='lidar_link']").remove(sensor)
 
     # Chassis and wheels cover the car footprint. Ground/self contacts are
     # filtered by the RL environment; contact information is reward-only.

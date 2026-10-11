@@ -11,6 +11,7 @@ from my_gazebo_launch.config import (
 )
 
 # ===================== 可修改配置区 =====================
+OBSERVATION_MODE = "privileged"  # privileged=地图/物理真值；lidar=保留原雷达 PPO 对照
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 RL_MODEL_DIR = SIMULATION_ROOT / "rl_models"
 POLICY_DIR = RL_MODEL_DIR / "policies"
@@ -48,9 +49,10 @@ SEED = 42
 DEVICE = "cpu"  # 小型 MLP；主要耗时在仿真采样
 TORCH_THREADS = 2
 STARTUP_TIMEOUT_SEC = 60.0
+GUI_STARTUP_SETTLE_SEC = 3.0  # 等待图形界面初始化，避免其控制消息打断第一次物理步进
 DATA_TIMEOUT_SEC = 10.0
 RESET_SETTLE_SEC = 0.4
-STEP_SIM_TIME_SEC = 0.2  # 仿真时间；低扫描频率时自动增大到至少一圈
+STEP_SIM_TIME_SEC = 0.2  # 仿真时间；仅雷达模式会因低扫描频率增大到至少一圈
 STATE_MAX_AGE_SEC = 0.03
 COMMAND_HEARTBEAT_SEC = 0.1
 MAX_STEPS_PER_EPISODE = 750  # 150 秒；正常巡航的采样截断，不是失败
@@ -95,7 +97,7 @@ TOTAL_TIMESTEPS = 500000
 SAVE_FREQ = 10000
 EVAL_FREQ = 10000
 EVAL_EPISODES = 3
-MAX_TRAINING_HOURS = 4.5  # 本次 6 小时任务留出独立长时验证和调整时间
+MAX_TRAINING_HOURS = 4.5  # 单次训练预算；可由 --hours 修改
 # ===================== 配置区结束 =====================
 
 

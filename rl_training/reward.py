@@ -8,7 +8,8 @@ from .config import RewardSettings
 
 def compute_reward(lidar_mm, *, linear_velocity, distance_moved, sim_dt,
                    action, previous_action, vehicle, collided=False, stuck=False,
-                   looping=False, slow=False, out_of_bounds=False, settings=None):
+                   looping=False, slow=False, out_of_bounds=False, settings=None,
+                   clearance_m=None, front_clearance_m=None):
     """Return total reward and individual terms for auditable local logs."""
     settings = settings or RewardSettings()
     terms = {
@@ -28,7 +29,7 @@ def compute_reward(lidar_mm, *, linear_velocity, distance_moved, sim_dt,
         "out_of_bounds": settings.out_of_bounds if out_of_bounds
                          and not (collided or stuck or looping or slow) else 0.0,
     }
-    distances = np.asarray(lidar_mm)
+    distances = np.asarray(lidar_mm) if lidar_mm is not None else np.array([])
     valid = distances[distances > 0]
     if valid.size:
         proximity = max(0.0, 1.0 - float(valid.min()) / settings.near_distance_mm)
@@ -39,6 +40,13 @@ def compute_reward(lidar_mm, *, linear_velocity, distance_moved, sim_dt,
     if front.size:
         risk = max(0., 1 - float(front.min()) / settings.front_distance_mm)
         terms["front_risk"] = -settings.front_risk_per_sec * risk ** 2 * sim_dt
+    if lidar_mm is None:
+        if clearance_m is None or front_clearance_m is None:
+            raise ValueError("无雷达模式必须提供地图真值安全间距。")
+        proximity = max(0.,1-clearance_m/(settings.near_distance_mm/1000))
+        risk = max(0.,1-front_clearance_m/(settings.front_distance_mm/1000))
+        terms["clearance"] = -settings.near_penalty_per_sec*proximity*sim_dt
+        terms["front_risk"] = -settings.front_risk_per_sec*risk**2*sim_dt
     if previous_action is not None:
         change = abs(action - previous_action) / (vehicle.label_count - 1)
         terms["steering_change"] = -settings.steering_change_penalty * change

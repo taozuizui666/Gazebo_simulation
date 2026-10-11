@@ -50,7 +50,7 @@
         <div class="section-title"><h2>选中训练批次的设置</h2></div><div id="run-details" class="card"></div>
         <details class="card"><summary>验收轨迹与速度</summary><div id="validation-image"></div></details>
         <details class="card"><summary>完整训练曲线</summary><div id="learning-image"></div></details>
-        <p class="explain">模型输入只有雷达距离。速度目标来自共享配置；实际接触与里程计用于奖励和验收。验证范围是记录中的地图、起点与车辆参数。</p>
+        <p class="explain">特权教师使用地图几何和物理真值，训练时关闭雷达；雷达策略为独立对照。两者均采用共享轮速目标，验证结论限于记录中的地图、起点与车辆参数。</p>
       </section>
     </main>
     <footer><span id="update-policy"></span><br><span id="snapshot-time"></span><br>仿真时间与电脑实际耗时分别统计 · 仅展示进度，不控制车辆</footer>

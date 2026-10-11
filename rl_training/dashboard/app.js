@@ -16,6 +16,7 @@ function date(value, full=false) {
   if (!value || !Number.isFinite(new Date(value).getTime())) return '—';
   return new Date(value).toLocaleString('zh-CN', full ? {} : {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 }
+const modeName = m => m==='privileged' ? '特权教师 · 无雷达' : '雷达策略';
 const reasonNames = {collision:'碰撞',stuck:'卡住',looping:'局部绕圈',slow:'持续低速',out_of_bounds:'越界',time_limit:'正常达到时限'};
 const statusNames = {training:'训练中',starting:'启动中',stopped:'已主动停止',complete:'已完成',time_budget_reached:'时间预算已用完',interrupted:'已中断',failed:'异常退出',stale:'数据中断，状态待确认'};
 const state = {data:null,config:null,runId:'latest',tab:'overview',chart:'duration',episodeSource:'training',reason:'all',limit:20,busy:false,error:null,fallback:false,chartPoints:[]};
@@ -72,10 +73,14 @@ function renderOverview(r) {
     subtitle='训练探索回合的记录；更多驾驶结论请查看独立验收。';status=statusNames[r?.status] || '尚无训练记录';
   }
   const start=r?.start_steps || 0, goal=r?.target_steps;
-  const progress=valid(goal)&&goal>start ? Math.min(100,Math.max(0,100*((r?.steps||0)-start)/(goal-start))) : 0;
+  const stepProgress=valid(goal)&&goal>start ? 100*((r?.steps||0)-start)/(goal-start) : 0;
+  const budget=r?.time_budget_sec, timed=valid(budget)&&budget>0;
+  const progress=Math.min(100,Math.max(0,stepProgress,timed ? 100*(r?.elapsed_wall_sec||0)/budget : 0));
+  const progressLabel=timed ? `时间预算 ${duration(budget)} · 已用 ${duration(r?.elapsed_wall_sec)}` : `${n(r?.steps)} / ${n(goal)} 步`;
+  const budgetNote=r?.is_running && valid(r?.remaining_wall_sec) ? `剩余约 ${duration(r.remaining_wall_sec)} · 含定期评估` : '电脑时间，含定期评估';
   $('hero').className='hero';
-  $('hero').innerHTML=`<p class="eyebrow">${h(title)}</p><div class="hero-value">${h(value)}</div><p>${h(subtitle)}</p><div class="hero-status">${badge(status)}<span class="caption" style="color:#c1d2d9">${n(r?.steps)} / ${n(goal)} 步</span></div><div class="progress-track" aria-label="本轮训练采样进度"><i style="width:${progress}%"></i></div>`;
-  $('headline-metrics').innerHTML=metric('累计训练采样',n(r?.steps),'包含续训前的步数')+metric('本轮实际耗时',duration(r?.elapsed_wall_sec),'电脑时间，含定期评估')+metric('近期完成率',pct(s?.completion_rate),`${s?.count || 0} 个已结束训练回合`)+metric('平均前进速度',n(s?.mean_speed_mps,4),'m/s · 目标 '+n(r?.vehicle?.forward_speed_mps,2));
+  $('hero').innerHTML=`<p class="eyebrow">${h(title)}</p><div class="hero-value">${h(value)}</div><p>${h(subtitle)}</p><div class="hero-status">${badge(status)}<span class="caption" style="color:#c1d2d9">${h(progressLabel)}</span></div><div class="progress-track" aria-label="本轮训练时间或采样预算进度"><i style="width:${progress}%"></i></div>`;
+  $('headline-metrics').innerHTML=metric('累计训练采样',n(r?.steps),'包含续训前的步数')+metric('本轮实际耗时',duration(r?.elapsed_wall_sec),budgetNote)+metric('近期完成率',pct(s?.completion_rate),`${s?.count || 0} 个已结束训练回合`)+metric('平均前进速度',n(s?.mean_speed_mps,4),'m/s · 目标 '+n(r?.vehicle?.forward_speed_mps,2));
   $('window-label').textContent=`最近 ${s?.count || 0} 个训练回合`;
   $('failure-cards').innerHTML=['collision','stuck'].map(key=>{
     const f=s?.failures?.[key], count=f?.count || 0;
@@ -89,7 +94,7 @@ function renderOverview(r) {
   const evaluations=[...(state.data.evaluations || [])].sort((a,b)=>Number(b.is_running)-Number(a.is_running)).slice(0,2);
   $('evaluation-section').hidden=!evaluations.length;
   $('evaluation-cards').innerHTML=evaluations.map(e=>`<div class="card"><div class="live-head"><h3>${e.is_running ? '固定权重独立评估中' : '评估：'+h(statusNames[e.status] || e.status)}</h3>${badge(`${e.completed_episodes}/${e.total_episodes} 段`,e.is_running || e.passed?'':'warn')}</div><p class="caption">模型 ${h((e.model_sha256 || '').slice(0,12))} · ${e.stats.failure_count} 次失败 · 正常完成 ${e.stats.counts.time_limit} 段</p>${e.live ? `<div class="live-duration">${h(duration(e.live.sim_duration_sec))}</div><p class="caption">${e.is_running?'当前这一段':'最后一段记录'} · ${n(e.live.distance_m,2)} m · ${n(e.live.speed_mps,4)} m/s</p>` : '<p class="caption">尚无逐步记录</p>'}<p class="caption">${['collision','stuck'].map(k=>h(reasonNames[k])+': '+(e.stats.failures[k].count ? n(e.stats.failures[k].count)+' 次，平均 '+h(duration(e.stats.failures[k].mean_sec))+' 时发生' : '尚未观察到')).join('<br>')}</p></div>`).join('');
-  $('validation-card').innerHTML=model ? `<div class="validation-head"><h3>PPO · ${n(model.steps)} 步</h3>${badge(model.verified?'散列与报告匹配':'权重或报告不匹配',model.verified?'':'danger')}</div><div class="validation-value">${n(model.stats.failure_count)} 次失败<span>/ ${model.stats.count} 段独立验收</span></div><p class="caption">最短单段 ${h(duration(model.min_completed_sec))} · 平均速度 ${n(model.min_mean_speed_mps,5)}～${n(model.max_mean_speed_mps,5)} m/s</p><div class="validation-foot"><span>累计 ${n(model.stats.total_distance_m,1)} m</span><span>累计仿真 ${h(duration(model.stats.total_sim_sec))}</span><span>最低速度合规率 ${pct(model.min_speed_compliance)}</span></div><p class="caption">独立验收与上面的随机探索训练分开统计；累计时间是多段之和。</p>` : '<div class="empty">还没有已冻结的验证模型。训练检查点不会自动当作通过验收。</div>';
+  $('validation-card').innerHTML=model ? `<div class="validation-head"><h3>${h(modeName(model.observation_mode))} · ${n(model.steps)} 步</h3>${badge(model.verified?'散列与报告匹配':'权重或报告不匹配',model.verified?'':'danger')}</div><div class="validation-value">${n(model.stats.failure_count)} 次失败<span>/ ${model.stats.count} 段独立验收</span></div><p class="caption">最短单段 ${h(duration(model.min_completed_sec))} · 平均速度 ${n(model.min_mean_speed_mps,5)}～${n(model.max_mean_speed_mps,5)} m/s</p><div class="validation-foot"><span>累计 ${n(model.stats.total_distance_m,1)} m</span><span>累计仿真 ${h(duration(model.stats.total_sim_sec))}</span><span>最低速度合规率 ${pct(model.min_speed_compliance)}</span></div><p class="caption">独立验收与上面的随机探索训练分开统计；累计时间是多段之和。</p>` : '<div class="empty">还没有已冻结的验证模型。训练检查点不会自动当作通过验收。</div>';
 }
 
 function liveCard(w) {
@@ -138,15 +143,16 @@ function renderModel(r){
   $('model-badge').className='badge'+(m?.verified?'':' muted'); $('model-badge').textContent=m?.verified?'已独立验收':'尚未验证';
   $('model-details').innerHTML=m ? detailList([
     ['算法 / 网络','PPO / '+(p?.POLICY_NET_ARCH||[]).join(' → ')],['训练采样',n(m.steps)+' 步'],
-    ['模型输入',n(v?.lidar_point_count)+' 列雷达距离'],['动作标签',`0～${n((v?.label_count || 1)-1)}，${n(Math.floor((v?.label_count || 0)/2))} 为直行`],
-    ['目标前进速度',n(v?.forward_speed_mps,2)+' m/s'],['雷达频率',n(v?.lidar_scan_hz,1)+' Hz'],
+    ['模型输入',m.observation_mode==='privileged' ? `${m.observation_spec?.settings?.grid_rows}×${m.observation_spec?.settings?.grid_cols} 地图距离场＋3维状态` : n(v?.lidar_point_count)+' 列雷达距离'],['动作标签',`0～${n((v?.label_count || 1)-1)}，${n(Math.floor((v?.label_count || 0)/2))} 为直行`],
+    ['目标前进速度',n(v?.forward_speed_mps,2)+' m/s'],[m.observation_mode==='privileged'?'雷达依赖':'雷达频率',m.observation_mode==='privileged'?'已关闭，不参与决策与奖励':n(v?.lidar_scan_hz,1)+' Hz'],
     ['已验证地图',(m.reports || []).map(r=>String(r.world || '').split('/').pop()).filter((x,i,a)=>a.indexOf(x)===i).join('、')],
     ['验证完成时间',date(m.updated_at,true)],['模型 SHA-256',m.sha256],['模型目录',m.id],
   ]) : '<div class="empty">完成独立长时验证并冻结模型后显示参数。</div>';
   const rp=r?.ppo,env=r?.environment;
   $('run-details').innerHTML=r ? detailList([
-    ['批次',r.id],['状态',statusNames[r.status]||r.status],['地图',r.world],['并行训练车',r.num_envs],
+    ['批次',r.id],['观测模式',modeName(r.observation_mode)],['输入维度',r.observation_spec?.dimension || r.vehicle?.lidar_point_count],['状态',statusNames[r.status]||r.status],['地图',r.world],['并行训练车',r.num_envs],
     ['开始 / 结束',date(r.started_at)+' / '+date(r.ended_at)],['仿真控制步长',n(env?.step_sim_sec,3)+' 秒'],
+    ['训练时间预算',duration(r.time_budget_sec)],['预计结束训练',date(r.training_deadline,true)],
     ['单回合时限',duration(r.episode_limit_sec)],['卡住窗口',duration(env?.stuck_window_sec)],
     ['卡住位移阈值',n(env?.stuck_min_travel_m,3)+' m'],['速度合规范围','目标 ±'+n((env?.speed_tolerance_ratio || 0)*100)+'%'],
     ['学习率',rp?.LEARNING_RATE],['折扣因子 γ',rp?.GAMMA],['熵系数',rp?.ENTROPY_COEFF],
@@ -164,7 +170,7 @@ function renderModel(r){
 
 function render(){
   const select=$('run-select'), selection=state.runId;
-  select.innerHTML='<option value="latest">跟随最新训练批次</option>'+(state.data.runs || []).map(r=>`<option value="${h(r.id)}">${h(date(r.started_at))} · ${n(r.steps)} 步 · ${h(statusNames[r.status]||r.status)}</option>`).join('');
+  select.innerHTML='<option value="latest">跟随最新训练批次</option>'+(state.data.runs || []).map(r=>`<option value="${h(r.id)}">${h(date(r.started_at))} · ${h(modeName(r.observation_mode))} · ${n(r.steps)} 步 · ${h(statusNames[r.status]||r.status)}</option>`).join('');
   if(selection!=='latest' && !state.data.runs.some(r=>r.id===selection)) state.runId='latest';
   select.value=state.runId;
   const r=run();

@@ -82,6 +82,11 @@ class GitPublisher:
         self.pages_branch, self.data_branch = pages_branch, data_branch
         self.last_data = None
         self.last_assets = None
+        # Preserve repository authentication/transport settings (e.g. SSH over
+        # port 443); a default environment override would hide core.sshCommand.
+        self.configured_ssh = subprocess.run(
+            ["git", "config", "--get", "core.sshCommand"], cwd=self.repo,
+            capture_output=True, text=True, timeout=cfg.GIT_TIMEOUT_SEC).stdout.strip()
         current = self.git(["branch", "--show-current"]).stdout.strip()
         if pages_branch == data_branch or current in (pages_branch, data_branch):
             raise ValueError("页面/数据分支必须互相独立，并与当前源码分支不同。")
@@ -90,7 +95,8 @@ class GitPublisher:
 
     def git(self, args, cwd=None, check=True, input=None):
         env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
-        env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=10")
+        if not self.configured_ssh:
+            env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=10")
         result = subprocess.run(["git", *args], cwd=cwd or self.repo, env=env, input=input,
                                 capture_output=True, text=True, timeout=cfg.GIT_TIMEOUT_SEC)
         if check and result.returncode:
