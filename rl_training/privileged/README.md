@@ -33,8 +33,75 @@ python rl_training/privileged/visualize.py          # 打开 Gazebo 观看
 地图解析目前支持静态、水平放置的 box 碰撞体，不支持的几何会报错。
 更换地图使用同名 JSON 的出生点和工作边界，并重新验证泛化表现。
 
-后续若用教师生成随机森林数据，仍需在同一车辆状态下配对雷达帧和教师动作；
-本目录负责教师训练，当前没有启动这项数据采集。
+## 采集随机森林训练数据
+
+入口 [collect_data.py](collect_data.py) 自动加载 ROS/Gazebo 环境。配置集中在文件顶部：
+模型、地图列表、每轮秒数、每图轮数、输出路径、GUI、置零比例和随机种子。
+默认使用已验证教师，按列表依次采集四张地图，每张三轮，每轮最多 180 仿真秒。
+一次启动最多 36 仿真分钟；GUI 默认开启，实际墙钟耗时还包含启动、复位和保存。
+
+```python
+WORLD_DIR = ROOT / "assets/worlds/simple"
+WORLDS = [WORLD_DIR / name for name in (
+    "train_world3.sdf",
+    "rounded_rectangle_001.sdf",
+    "ellipse_002.sdf",
+    "rounded_rectangle_003.sdf",
+)]
+COLLECTION_SECONDS = 180  # 每轮仿真秒数上限
+COLLECTION_ROUNDS = 3     # 每张地图轮数
+```
+
+每张地图的多轮记录合并为一份原始 CSV，再生成一份同样行数的增强 CSV。
+地图文件名必须互不相同；出生点依次取同名 JSON 的评估出生点，用完后循环。
+时长自动按模型的实际控制周期换算为完整步数，向下取整，至少一个控制步；
+例如当前周期为 0.2 秒，配置 180 秒得到 900 步，配置 1.1 秒实际最多采集 1.0 秒。
+
+```bash
+# 在 dissertation 根目录运行
+python Gazebo_simulation/rl_training/privileged/collect_data.py --check
+python Gazebo_simulation/rl_training/privileged/collect_data.py
+# 可选：关闭窗口，覆盖顶部的每轮秒数和每图轮数
+python Gazebo_simulation/rl_training/privileged/collect_data.py --headless --seconds 20 --rounds 2
+```
+
+采集时额外开启雷达；教师仍用原有 292 维地图/物理状态决策，奖励也仍用地图真值。
+每个控制边界取最近的新扫描，配对接下来实际执行的教师动作。检查雷达时间戳递增、
+不晚于决策时刻、帧龄不超过一圈加一个物理步长；缺少新帧时报错停止。
+扫描与教师物理状态使用各自的时间戳，并非假设两者严格同时。
+
+每次生成 `results/datasets/collection_<时间>_<批次>/`：
+
+- `raw/<地图名>_raw.csv`：该地图各轮按采集顺序追加的原始记录，每行 200 个整数毫米距离
+  及一个动作，共 201 列，无表头。
+- `dropout/<地图名>_dropout.csv`：原始数据采集完成后生成的增强副本，行数、顺序和标签不变。
+  每行从非零距离中无放回随机抽取 `floor(非零点数 × 0.05 + 0.5)` 个位置设为零；
+  未选中的距离及原有零值不变。每行独立抽取，固定随机种子可复现。
+- `<地图名>_timing.jsonl`：逐行保存地图 CSV 行号、轮次、轮内步数，以及雷达、决策和动作结束
+  时间戳，单位纳秒。
+- `metadata.json`：模型/地图指纹、车辆参数、行数、标签分布、结束原因、增强参数、
+  文件指纹和原始/增强文件共同的 `group_id`。`maps` 汇总每张地图，
+  `episodes` 记录每轮及其 `row_start`、`row_end`（从 1 开始，包含两端）。
+- `runtime_*/`：本次仿真的日志与运行状态。
+
+完整采集和增强结束后，仅原始与增强 CSV 原样复制至
+`dissertation/dataset/simulation/<同名批次>/`，保持 `raw/`、`dropout/` 两个子目录；
+复制校验成功后才发布该目录。四张地图得到 4 份原始 CSV 和 4 份增强 CSV。
+`metadata.json`、逐行时间戳和运行日志只保留在 Gazebo 的原始采集目录，
+通过同名批次目录查找。
+原始和增强记录数量为 1:1，例如 900 条原始记录对应 900 条增强记录。
+失败或中断的采集留在结果目录，元信息标记原因，不发布到训练目录。
+碰撞等正常回合终止会保留终止动作对应的样本，并记录 `success` 和 `termination_reason`；
+采集阶段不清理、筛选样本，也不执行 K 特征选择或随机森林训练。
+
+后续训练需要处理以下约定：
+
+- 同一地图的原始与增强文件按 Gazebo 原始目录元信息中的 `group_id`
+  一起分到训练集或验证集；若按回合划分，则按 `episodes` 行号范围保持原始/增强样本配对，
+  避免数据泄漏。
+- 当前训练器会删除选中特征含零的行，训练增强数据前需调整该策略。
+- 仿真标签为 0～14、7 直行；旧实车是 10 直行。`dataset/physical` 与
+  `dataset/simulation` 可由训练器统一递归读取，但混训前必须统一标签含义与雷达定义。
 
 PPO、奖励与仿真配置共用 [common/config.py](../common/config.py)。
 完整训练、续训、验收和网页命令见 [总说明](../README.md)。

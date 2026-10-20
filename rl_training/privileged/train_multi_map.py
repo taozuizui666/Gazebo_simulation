@@ -21,7 +21,7 @@ AUTO_RESUME = True                 # 优先接着 OUTPUT_DIR 中最近的多地�
 RESUME_MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"                 # 无自动续训历史时使用；关闭 AUTO_RESUME 可固定指定模型
 RESUME_ALLOW_VEHICLE_CHANGE = False
 # 训练正常结束后独立验收；Ctrl+C/STOP 不自动启动验收。
-AUTO_VALIDATE = False
+AUTO_VALIDATE = True
 VALIDATION_WORLDS = [ROOT / "assets/worlds/validation" / name for name in (
     "validation_rounded_rectangle_001.sdf", "validation_ellipse_002.sdf")]
 VALIDATION_MODEL_NAME = "best_model.zip"  # 尚无 best 时使用本次 final

@@ -10,6 +10,7 @@
 | [training/privileged/policies/](training/privileged/policies/) | 特权模型各批次训练/评估图 |
 | `training/progress/` | 本地进度网页和展示图片，由发布器生成 |
 | `training/external/` | 自定义模型输出目录对应的结果，保留绝对路径层级以避免重名 |
+| `datasets/` | 每批次按地图合并多轮采集，raw/、dropout/ 分开存放；CSV 按相同结构复制到 dissertation/dataset/simulation，元信息与时序只留在此处 |
 
 两类 `policies/latest_validated/` 指向当前已验证模型的结果批次。
 权重、日志、JSON 报告及 NPZ 原始轨迹仍在 `rl_models/` 对应批次中。
