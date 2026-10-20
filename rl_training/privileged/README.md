@@ -37,8 +37,8 @@ python rl_training/privileged/visualize.py          # 打开 Gazebo 观看
 
 入口 [collect_data.py](collect_data.py) 自动加载 ROS/Gazebo 环境。配置集中在文件顶部：
 模型、地图列表、每轮秒数、每图轮数、输出路径、GUI、置零比例和随机种子。
-默认使用已验证教师，按列表依次采集四张地图，每张三轮，每轮最多 180 仿真秒。
-一次启动最多 36 仿真分钟；GUI 默认开启，实际墙钟耗时还包含启动、复位和保存。
+默认使用已验证教师，按列表依次采集四张地图，每张五轮，每轮最多 300 仿真秒。
+一次启动最多 100 仿真分钟；GUI 默认开启，实际墙钟耗时还包含启动、复位和保存。
 
 ```python
 WORLD_DIR = ROOT / "assets/worlds/simple"
@@ -48,9 +48,21 @@ WORLDS = [WORLD_DIR / name for name in (
     "ellipse_002.sdf",
     "rounded_rectangle_003.sdf",
 )]
-COLLECTION_SECONDS = 180  # 每轮仿真秒数上限
-COLLECTION_ROUNDS = 3     # 每张地图轮数
+COLLECTION_SECONDS = 300  # 每轮仿真秒数上限
+COLLECTION_ROUNDS = 5     # 每张地图轮数
+GUI = True               # True 显示优先；False 无窗口、不限速采集
+GUI_REAL_TIME_FACTOR = 1.0  # 仅 GUI 生效；1 为实时，0.5 为半速，必须 > 0
 ```
+
+`GUI=True` 限制物理推进速度，并关闭场景阴影以减轻软件渲染负担。
+地图 JSON 有工作边界且 SDF 未指定相机位置时，默认从上方观看整个赛道，避免墙体遮挡小车；
+仍可在窗口中手动调整视角。
+`GUI=False` 或 `--headless` 不启动 gzclient，实时倍率设为 0（不限速），
+不等待 GUI 启动；仍保留完整的雷达更新、时间戳和动作对应检查。
+两种模式使用同样的模型、控制周期和 CSV 格式。每轮结束打印实际采集耗时及条数/秒，
+并在 Gazebo 的 `metadata.json` 中记录 `wall_seconds`（不含启动、复位和增强复制）。
+程序使用暂停状态下的精确步进，窗口中的暂停图标、Real Time Factor 或 Real Time
+可能保持不变；应观察 **Sim Time 和小车位置**。采集中不要手动点击播放或重置。
 
 每张地图的多轮记录合并为一份原始 CSV，再生成一份同样行数的增强 CSV。
 地图文件名必须互不相同；出生点依次取同名 JSON 的评估出生点，用完后循环。

@@ -57,7 +57,8 @@ def _start(context):
                             encoding="utf-8", delete=False) as rendered_world:
         rendered_world.write(render_world(world, config, float(
             LaunchConfiguration("real_time_factor").perform(context)),
-            LaunchConfiguration("training_step_plugin").perform(context)))
+            LaunchConfiguration("training_step_plugin").perform(context),
+            gui=IfCondition(LaunchConfiguration("gui")).evaluate(context)))
     gazebo_launch = Path(get_package_share_directory("gazebo_ros")) / "launch/gazebo.launch.py"
     return [
         RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(

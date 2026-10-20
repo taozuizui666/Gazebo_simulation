@@ -115,7 +115,25 @@ python rl_training/privileged/train.py --world assets/worlds/simple/rounded_rect
 `--world` 省略时使用配置区顶部的默认地图；出生点和工作边界随地图读取同名 JSON。
 生成参数位于脚本顶部，命令行可覆盖，详见 [地图生成工具](tools/README.md)。
 PPO 参数、续训、独立验收和时间预算见 [RL 使用说明](rl_training/README.md)。
-现有验收限于记录中的地图、起点和车辆条件；后续教师动作与雷达配对采集尚未启动。
+现有验收限于记录中的地图、起点和车辆条件。
+
+### 采集随机森林训练数据
+
+```bash
+# 在 Gazebo_simulation 目录运行；脚本自动加载 ROS/Gazebo 环境
+python rl_training/privileged/collect_data.py --check
+python rl_training/privileged/collect_data.py
+# 临时关闭 GUI，优先采集速度
+python rl_training/privileged/collect_data.py --headless
+```
+
+在脚本顶部设置 `GUI`、`GUI_REAL_TIME_FACTOR`、`WORLDS`、
+`COLLECTION_SECONDS` 和 `COLLECTION_ROUNDS`。GUI 模式限制仿真速度、关闭阴影，
+并根据地图边界设置默认俯视视角；
+无 GUI 模式不限速，同时保留雷达与动作同步检查。
+每张地图输出一份 raw 和一份 dropout CSV，分别保存到两个文件夹，并复制至
+`../dataset/simulation/<批次>/`。元信息、时间戳和日志只留在 `results/datasets/`。
+详见 [采集说明](rl_training/privileged/README.md#采集随机森林训练数据)。
 
 ## 手机进度
 

@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 from .config import (CMD_VEL_TOPIC, CONTACT_TOPIC, RAW_SCAN_TOPIC,
                      DEFAULT_ENTITY_NAME, IGNORED_CONTACT_MODELS)
+from .world_config import load_world_settings
 
 
 def _text(parent, name, value):
@@ -118,12 +119,33 @@ def render_robot(template, config, enable_lidar=True):
     return '<?xml version="1.0"?>\n' + ET.tostring(root, encoding="unicode")
 
 
-def render_world(template, config, real_time_factor=1.0, training_step_plugin=""):
+def render_world(template, config, real_time_factor=1.0, training_step_plugin="", gui=False):
     """Set the physics step explicitly so RL's paused multi-step is exact."""
     root = ET.parse(Path(template)).getroot()
     world = root.find("world")
     if world is None:
         raise ValueError("SDF 文件缺少 world。")
+    if gui:
+        # 软件渲染下阴影开销较大；只调整显示，不修改碰撞体或雷达。
+        scene = world.find("scene")
+        if scene is None:
+            scene = ET.SubElement(world, "scene")
+        _text(scene, "shadows", "false")
+        # 默认低视角会被赛道墙挡住；有地图边界时从上方观看整个赛道。
+        if Path(template).with_suffix(".json").is_file():
+            bounds = load_world_settings(template).workspace_bounds
+            if bounds is not None:
+                gui_element = world.find("gui")
+                if gui_element is None:
+                    gui_element = ET.SubElement(world, "gui")
+                camera = gui_element.find("camera")
+                if camera is None:
+                    camera = ET.SubElement(gui_element, "camera", name="user_camera")
+                if camera.find("pose") is None:
+                    xmin, xmax, ymin, ymax = bounds
+                    height = 2 * max(xmax - xmin, ymax - ymin)
+                    _text(camera, "pose",
+                          f"{(xmin + xmax) / 2} {(ymin + ymax) / 2} {height} 0 {math.pi / 2} 0")
     physics = world.find("physics")
     if physics is None:
         physics = ET.SubElement(world, "physics", name="aicar_physics", type="ode")

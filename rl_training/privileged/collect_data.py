@@ -30,9 +30,10 @@ WORLDS = [WORLD_DIR / name for name in (
 )]
 OUTPUT_DIR = ROOT / "results/datasets"          # 原始采集、增强数据、时序与日志
 DATASET_DIR = ROOT.parent / "dataset/simulation"  # 后续随机森林读取的副本
-COLLECTION_SECONDS = 180                      # 每轮最多采集多少仿真秒
-COLLECTION_ROUNDS = 3                         # 每张地图采集多少轮，依次使用 JSON 中的评估出生点
-GUI = True
+COLLECTION_SECONDS = 300                      # 每轮最多采集多少仿真秒
+COLLECTION_ROUNDS = 5                         # 每张地图采集多少轮，依次使用 JSON 中的评估出生点
+GUI = True                                  # True：显示优先；False：无窗口、不限速采集
+GUI_REAL_TIME_FACTOR = 1.0                   # 仅 GUI 生效；1 为实时，0.5 为半速，必须 > 0
 SEED = 42                                    # 仿真种子
 DROPOUT_FRACTION = 0.05                       # 每行非零雷达点中约 5% 随机置零
 DROPOUT_SEED = 42                             # 增强种子；原始/增强行一一对应，数量 1:1
@@ -156,7 +157,13 @@ def main():
     if output_dir.is_relative_to(dataset_dir.parent):
         raise ValueError("原始采集输出应放在 dataset 目录之外，避免重复读入。")
     gui = GUI and not args.headless
+    if gui and (not math.isfinite(GUI_REAL_TIME_FACTOR) or GUI_REAL_TIME_FACTOR <= 0):
+        raise ValueError("GUI_REAL_TIME_FACTOR 必须为正的有限数。")
+    real_time_factor = GUI_REAL_TIME_FACTOR if gui else 0.0
+    mode = (f"GUI 显示优先（最高 {real_time_factor:g} 倍速，关闭阴影）" if gui
+            else "无 GUI，采集优先（不限速）")
     print(f"教师：{model_path}\n地图：{', '.join(w.world.name for w in worlds)}\n"
+          f"运行模式：{mode}\n"
           f"每图 {args.rounds} 轮，每轮最多 {max_steps * step_seconds:g} 仿真秒"
           f"（配置 {args.seconds:g} 秒，{max_steps} 步）；"
           f"随机置零 {DROPOUT_FRACTION:.0%}\n采集目录：{output_dir}\n训练副本：{dataset_dir}", flush=True)
@@ -177,6 +184,7 @@ def main():
         "model_training_timesteps": saved.get("training_timesteps"),
         "observation_spec": spec, "vehicle": asdict(vehicle), "seed": SEED, "gui": gui,
         "collection": {"seconds_per_round": args.seconds, "rounds_per_map": args.rounds,
+                       "real_time_factor": real_time_factor,
                        "step_seconds": step_seconds, "steps_per_round": max_steps,
                        "actual_max_seconds_per_round": max_steps * step_seconds},
         "format": {"columns": vehicle.lidar_point_count + 1, "header": False,
@@ -207,7 +215,7 @@ def main():
                 settings=replace(settings, workspace_bounds=world.workspace_bounds),
                 reward_settings=config.RewardSettings(**saved["reward"]),
                 log_dir=directory / f"runtime_{stem}",
-                gui=gui, real_time_factor=1.0 if gui else 0.0,
+                gui=gui, real_time_factor=real_time_factor,
                 observation_mode="privileged", capture_lidar=True)
             if gui:
                 time.sleep(config.GUI_STARTUP_SETTLE_SEC)
@@ -217,6 +225,7 @@ def main():
                     number = len(metadata["episodes"]) + 1
                     env.spawn_pose = tuple(world.eval_spawn_poses[index % len(world.eval_spawn_poses)])
                     obs, current = env.reset(seed=SEED + number - 1)
+                    round_started = time.monotonic()
                     counts = Counter()
                     previous_stamp = -1
                     row_start = map_rows + 1
@@ -250,6 +259,7 @@ def main():
                             break
                     raw.flush()
                     timing.flush()
+                    wall_seconds = time.monotonic() - round_started
                     map_counts.update(counts)
                     metadata["episodes"].append({
                         "group_id": f"{batch}/{stem}", "round": index + 1, "world": str(world.world),
@@ -261,13 +271,15 @@ def main():
                         "termination_reason": following["termination_reason"],
                         "success": following["is_success"],
                         "sim_seconds": following["episode_sim_time_sec"],
+                        "wall_seconds": wall_seconds,
                         "distance_m": following["episode_distance_m"],
                         "mean_speed_mps": following["episode_mean_speed_mps"],
                     })
                     write_metadata(directory, metadata)
                     print(f"{stem} 第 {index + 1}/{args.rounds} 轮结束："
                           f"{following['termination_reason']}，{following['step']} 条，"
-                          f"本地图累计 {map_rows} 条。", flush=True)
+                          f"本地图累计 {map_rows} 条，实际采集耗时 {wall_seconds:.1f} 秒"
+                          f"（{following['step'] / wall_seconds:.1f} 条/秒）。", flush=True)
             metadata["maps"].append({
                 "group_id": f"{batch}/{stem}", "world": str(world.world),
                 "world_sha256": env.ground_truth_map.sha256, "rounds": args.rounds,
