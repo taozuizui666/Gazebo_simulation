@@ -86,8 +86,8 @@ class VehicleConfig:
             raise ValueError("雷达最小量程必须在训练有效距离范围内。")
         if self.lidar_physical_max_range_m < self.lidar_max_distance_mm / 1000:
             raise ValueError("物理量程不得小于训练距离上界。")
-        if self.lidar_raw_samples < max(720, 2 * n):
-            raise ValueError("原始射线至少 720 条，避免整数角度桶缺测。")
+        if type(self.lidar_raw_samples) is not int or self.lidar_raw_samples < 2:
+            raise ValueError("原始射线数必须为至少 2 的整数；未命中的角度桶保留为零。")
         if self.lidar_noise_stddev_m < 0 or self.sim_max_wheel_accel_mps2 < 0:
             raise ValueError("噪声和加速度上限不能为负。")
         return self

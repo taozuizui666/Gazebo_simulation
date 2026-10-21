@@ -30,7 +30,9 @@
 #define AICAR_LIDAR_Y_M                    0.0
 #define AICAR_LIDAR_Z_M                    0.13
 #define AICAR_LIDAR_SCAN_HZ                5.5
-#define AICAR_LIDAR_RAW_SAMPLES            1450
+// 实车使用标准 SCAN (0x20)：A1 约 2000 点/秒，round(2000 / 5.5) = 364 点/圈。
+// 固定整数射线近似；真实圈频和点数仍需实测校准，不采用 Boost 模式的 1450 点/圈。
+#define AICAR_LIDAR_RAW_SAMPLES            364
 #define AICAR_LIDAR_MIN_RANGE_M            0.15
 // A1M8 手册/官网的典型测距范围下沿；不是训练数据的硬性过滤阈值。
 // 若实测可靠量程不同，只修改此宏对齐仿真传感器。

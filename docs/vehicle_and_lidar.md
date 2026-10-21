@@ -19,7 +19,7 @@
 | `AICAR_LIDAR_FRONT_SECTOR_ONLY` | 1 | 仅保留现有实车采集扇区 |
 | `AICAR_LIDAR_MOUNT_YAW_DEG` | 0 | 雷达零度方向相对车头的逆时针夹角 |
 | `AICAR_LIDAR_SCAN_HZ` | 5.5 | A1M8 手册典型频率，实际应测量后调整 |
-| `AICAR_LIDAR_RAW_SAMPLES` | 1450 | 原始射线数，转换后仍是 200 桶 |
+| `AICAR_LIDAR_RAW_SAMPLES` | 364 | Standard 模式约 2000 点/秒 ÷ 5.5 圈/秒，取整；输出仍为 200 桶 |
 | `AICAR_LIDAR_NOISE_STDDEV_M` | 0.01 | 沿用旧模型的噪声标准差，尚未实测标定 |
 | `AICAR_COMMAND_TIMEOUT_MS` | 500 | 未持续收到指令时停车，单位为仿真时间 ms |
 | `AICAR_SIM_TIME_STEP_SEC` | 0.001 | 仿真物理步长，RL 按整数步推进 |
@@ -83,6 +83,18 @@ Gazebo 只用轮速接口，不模拟电流、PWM、编码器脉冲或 PID 参�
 典型值栏，不能解读为驱动必须删除所有 15 cm 内的有效点。默认仿真下界仍按
 该典型值设置为 0.15 m，可通过 `AICAR_LIDAR_MIN_RANGE_M` 修改；转换器遵循
 扫描自身的有效量程，没有再用配置下界额外过滤有效近点。
+
+整圈扫描频率与单点采样率不同：规格书的约 8000 点/秒、1450 点/圈对应高采样率能力。
+实车采集和自驾驱动目前发送标准 `SCAN` 命令 `0x20`；`lidar protocol.pdf`
+第 11、14 页给出 A1 Standard 模式最高 2000 点/秒，且该命令只使用 Legacy 模式。
+因此默认仿真保持 5.5 Hz，采用 `round(2000 / 5.5) = 364` 条射线近似标准模式，
+等效约 2002 点/仿真秒（整数取整误差约 0.1%），输出仍为 200 个整数毫米桶。
+实际实车圈频和收到的点数需测量校准；Gazebo 的整帧射线也没有模拟逐点旋转的时间差。
+不再为填满角度桶强制增加到至少 720 条射线，未观测到的桶按原规则保留零。
+
+特权 RL 采集先验证教师的原始配置，再只从当前共享配置覆盖
+`AICAR_LIDAR_SCAN_HZ` 和 `AICAR_LIDAR_RAW_SAMPLES`，将生效的 `vehicle_config.h`
+保存到采集批次。教师模型及其附带配置不修改；旧模型回放仍沿用原保存配置。
 
 Gazebo `/scan_raw` 保持 ROS 标准的逆时针弧度、米，仅用于调试。
 雷达基线策略和后续随机森林采集使用 `/lidar_distances`；特权教师不使用该话题：

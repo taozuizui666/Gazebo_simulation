@@ -131,6 +131,9 @@ python rl_training/privileged/collect_data.py --headless
 `COLLECTION_SECONDS` 和 `COLLECTION_ROUNDS`。GUI 模式限制仿真速度、关闭阴影，
 并根据地图边界设置默认俯视视角；
 无 GUI 模式不限速，同时保留雷达与动作同步检查。
+采集雷达通过顶部 `LIDAR_CONFIG` 读取共享配置的扫描频率和原始点数，默认
+5.5 Hz、364 点/圈，按实车标准 SCAN 模式建模；输出仍为 200 个雷达值加动作标签。
+教师模型不修改；旧 1450 点/圈批次需保留原配置，新参数另开批次采集。
 每张地图输出一份 raw 和一份 dropout CSV，分别保存到两个文件夹，并复制至
 `../dataset/simulation/<批次>/`。元信息、时间戳和日志只留在 `results/datasets/`。
 详见 [采集说明](rl_training/privileged/README.md#采集随机森林训练数据)。

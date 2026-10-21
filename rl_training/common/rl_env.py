@@ -176,7 +176,8 @@ class AicarGazeboEnv(gym.Env):
     def __init__(self, *, role="train", domain_id=None, port=None, header=None,
                  world=None, spawn_pose=None, seed=config.SEED, log_dir=None,
                  settings=None, reward_settings=None, gui=False, real_time_factor=0.0,
-                 observation_mode="lidar", privileged_settings=None, capture_lidar=False):
+                 observation_mode="lidar", privileged_settings=None, capture_lidar=False,
+                 lidar_wait_sec=None):
         super().__init__()
         if role not in ("train", "eval"):
             raise ValueError("role 必须为 train 或 eval。")
@@ -200,6 +201,11 @@ class AicarGazeboEnv(gym.Env):
         self.spawn_pose = tuple(spawn_pose)
         if observation_mode not in ("lidar", "privileged"):
             raise ValueError("observation_mode 必须为 lidar 或 privileged。")
+        if lidar_wait_sec is not None and (
+                observation_mode != "privileged" or not capture_lidar
+                or not math.isfinite(lidar_wait_sec) or lidar_wait_sec <= 0):
+            raise ValueError("lidar_wait_sec 必须为正数，且仅用于特权教师的雷达采集。")
+        self.lidar_wait_sec = lidar_wait_sec
         self.observation_mode = observation_mode
         self.ground_truth_map = (GroundTruthMap(world, privileged_settings)
                                  if observation_mode == "privileged" else None)
@@ -259,7 +265,7 @@ class AicarGazeboEnv(gym.Env):
             self.close()
             raise
 
-    def _await(self, predicate, message, timeout=None):
+    def _await(self, predicate, message, timeout=None, *, allow_timeout=False):
         deadline = time.monotonic() + (timeout or self.settings.data_timeout_sec)
         with self.node.changed:
             while True:
@@ -268,9 +274,11 @@ class AicarGazeboEnv(gym.Env):
                 if self.simulator is not None:
                     self.simulator.check_alive()
                 if predicate():
-                    return
+                    return True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    if allow_timeout:
+                        return False
                     raise SimulationDataError(message)
                 self.node.changed.wait(min(0.05, remaining))
 
@@ -330,14 +338,18 @@ class AicarGazeboEnv(gym.Env):
                 # Keep the teacher's physics state; the lidar is only an exported sample.
                 max_age = round((1 / self.vehicle.lidar_scan_hz + self.vehicle.sim_time_step_sec) * 1e9)
                 earliest = max(start_ns + 1, end_ns - max_age)
-                self._await(
+                ready = self._await(
                     lambda: any(earliest <= t <= end_ns for t, _ in self.node.scans),
-                    "本次采集步进缺少新鲜雷达帧。")
-                with self.node.changed:
-                    lidar_stamp, distances = max(
-                        ((t, d) for t, d in self.node.scans if earliest <= t <= end_ns),
-                        key=lambda frame: frame[0])
-                    distances = distances.copy()
+                    "本次采集步进缺少新鲜雷达帧。", timeout=self.lidar_wait_sec,
+                    allow_timeout=self.lidar_wait_sec is not None)
+                if ready:
+                    with self.node.changed:
+                        lidar_stamp, distances = max(
+                            ((t, d) for t, d in self.node.scans if earliest <= t <= end_ns),
+                            key=lambda frame: frame[0])
+                        distances = distances.copy()
+                # A privileged teacher can keep driving without an exportable
+                # scan. The next normal physics step can wake the ray sensor.
             return distances, dict(self.truth), self.step_contact[0], lidar_stamp, end_ns
         age_ns = round(self.settings.state_max_age_sec * 1e9)
         # Sensor timestamps must be within this action, not left over from reset.
@@ -408,6 +420,7 @@ class AicarGazeboEnv(gym.Env):
                 "position": self.previous_position, "sim_time": end / 1e9,
                 "yaw": odom["yaw"],
                 "lidar_stamp_ns": lidar_ns, "odom_stamp_ns": odom_ns,
+                "lidar_ready": lidar is not None,
                 **({"lidar_mm": lidar} if self.capture_lidar else {}),
                 "step": 0, "domain_id": self.domain_id}
         except BaseException as error:
@@ -486,15 +499,17 @@ class AicarGazeboEnv(gym.Env):
         self._closed = True
         if self.node is not None:
             self.node.set_command(self.vehicle.stop_command)
-        if self.simulator is not None:
-            self.simulator.close()
-        if self.executor is not None:
-            self.executor.shutdown(timeout_sec=3)
-        if self.thread is not None:
-            self.thread.join(timeout=3)
-        if self.node is not None:
-            self.node.destroy_node()
-        if self.context is not None and self.context.ok():
-            self.context.shutdown()
-        if hasattr(self, "progress"):
-            self.progress.update(force=True, phase="closed", ended_at=utc_now())
+        try:
+            if self.simulator is not None:
+                self.simulator.close()
+        finally:
+            if self.executor is not None:
+                self.executor.shutdown(timeout_sec=3)
+            if self.thread is not None:
+                self.thread.join(timeout=3)
+            if self.node is not None:
+                self.node.destroy_node()
+            if self.context is not None and self.context.ok():
+                self.context.shutdown()
+            if hasattr(self, "progress"):
+                self.progress.update(force=True, phase="closed", ended_at=utc_now())
