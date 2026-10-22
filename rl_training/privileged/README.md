@@ -36,9 +36,9 @@ python rl_training/privileged/visualize.py          # 打开 Gazebo 观看
 ## 采集随机森林训练数据
 
 入口 [collect_data.py](collect_data.py) 自动加载 ROS/Gazebo 环境。配置集中在文件顶部：
-模型、地图列表、每轮秒数、每图轮数、输出路径、GUI、置零比例和随机种子。
-默认使用已验证教师，按列表依次采集四张地图，每张五轮，每轮最多 300 仿真秒。
-一次启动最多 100 仿真分钟；GUI 默认开启，实际墙钟耗时还包含启动、复位和保存。
+模型、地图列表、每轮秒数、每图轮数、出生扰动、输出路径、GUI、置零比例和随机种子。
+当前使用已验证教师，按列表依次采集四张地图，每张 20 轮，每轮最多 3600 仿真秒。
+GUI 默认关闭，实际墙钟耗时还包含启动、复位和保存；首次验证建议先用下方的短程命令。
 
 ```python
 WORLD_DIR = ROOT / "assets/worlds/simple"
@@ -48,11 +48,22 @@ WORLDS = [WORLD_DIR / name for name in (
     "ellipse_002.sdf",
     "rounded_rectangle_003.sdf",
 )]
-COLLECTION_SECONDS = 300  # 每轮仿真秒数上限
-COLLECTION_ROUNDS = 5     # 每张地图轮数
+COLLECTION_SECONDS = 3600  # 每轮仿真秒数上限
+COLLECTION_ROUNDS = 20     # 每张地图轮数
+SPAWN_JITTER_ENABLED = True
+SPAWN_POSITION_JITTER_M = 0.03  # 普通轮次 x/y 各 ±3 cm
+SPAWN_YAW_JITTER_DEG = 10.0     # 普通轮次朝向 ±10 度
+RECOVERY_ENABLED = True
+RECOVERY_FRACTION = 0.25        # 每图 20 轮中 5 轮近墙纠正，轮次顺序由种子决定
+RECOVERY_MAX_OFFSET_M = 0.12
+RECOVERY_CLEARANCE_M = (0.04, 0.08)  # 保守车体净空，不是雷达量程
+RECOVERY_YAW_DEG = (10.0, 20.0)      # 朝横移的一侧偏航
+RECOVERY_FRONT_M = (0.15, 0.40)      # 前进方向车体首次接触障碍前的距离
+SPAWN_MARGIN_M = 0.01
+SPAWN_ATTEMPTS = 200
 LIDAR_WAIT_SEC = 0.2      # 等待扫描的现实秒数，偶发超时继续驾驶
 MAX_CONSECUTIVE_LIDAR_MISSES = 5  # 连续缺帧决策点达到此数时停止
-GUI = True               # True 显示优先；False 无窗口、不限速采集
+GUI = False              # True 显示优先；False 无窗口、不限速采集
 GUI_REAL_TIME_FACTOR = 1.0  # 仅 GUI 生效；1 为实时，0.5 为半速，必须 > 0
 ```
 
@@ -67,7 +78,18 @@ GUI_REAL_TIME_FACTOR = 1.0  # 仅 GUI 生效；1 为实时，0.5 为半速，必
 可能保持不变；应观察 **Sim Time 和小车位置**。采集中不要手动点击播放或重置。
 
 每张地图的多轮记录合并为一份原始 CSV，再生成一份同样行数的增强 CSV。
-地图文件名必须互不相同；出生点依次取同名 JSON 的评估出生点，用完后循环。
+地图文件名必须互不相同；以同名 JSON 的评估出生点依次循环作为采样基准。
+普通轮次在基准附近随机改变位置和朝向；近墙轮次随机向左/右横移，并朝同侧偏转，
+让教师从已有偏差的状态开始纠正。所有姿态都检查车体净空和工作边界；
+近墙候选还检查一个完整控制周期内最大纠正转向的保守圆扫掠路径。
+这项几何检查只排除明显不可行的候选，不保证 PPO 对任意地图都能恢复；新增地图需短程验证。
+行驶中的所有动作仍来自原教师，不施加随机错误动作，也不修改奖励或模型。
+
+每图近墙轮数为 `floor(COLLECTION_ROUNDS * RECOVERY_FRACTION + 0.5)`，其余轮次为普通扰动。
+这是轮数比例，不是 CSV 行数比例；例如 1 轮、25% 时近墙轮数为 0。
+关闭 `RECOVERY_ENABLED` 可只保留普通扰动；两个开关都关闭即恢复原固定出生姿态。
+`--check` 会预先生成并检查全部出生场景；同地图、参数和种子得到相同计划。
+候选尝试耗尽会明确报错，不会静默退回固定出生点。
 切换地图前会等待当前 Gazebo 进程组退出并确认端口释放；即使 `ros2 launch` 已先退出，
 也会清理本实例残留的子进程。若清理失败或端口仍被其他实例占用，会明确报错停止切图，
 不会终止其他仿真。
@@ -79,7 +101,7 @@ GUI_REAL_TIME_FACTOR = 1.0  # 仅 GUI 生效；1 为实时，0.5 为半速，必
 python Gazebo_simulation/rl_training/privileged/collect_data.py --check
 python Gazebo_simulation/rl_training/privileged/collect_data.py
 # 可选：关闭窗口，覆盖顶部的每轮秒数和每图轮数
-python Gazebo_simulation/rl_training/privileged/collect_data.py --headless --seconds 20 --rounds 2
+python Gazebo_simulation/rl_training/privileged/collect_data.py --headless --seconds 20 --rounds 4
 ```
 
 采集时额外开启雷达；教师仍用原有 292 维地图/物理状态决策，奖励也仍用地图真值。
@@ -98,7 +120,7 @@ python Gazebo_simulation/rl_training/privileged/collect_data.py --headless --sec
 此处理只对特权教师采集启用；传感器格式错误、仿真退出及其他数据错误仍会报错。
 缺帧不补零、不沿用旧扫描；一帧真实的全零扫描仍是有效输入。
 扫描与教师物理状态使用各自的时间戳，并非假设两者严格同时。
-缺帧处理参数也写入元信息并用于续采校验；旧批次没有这些参数时需新建批次。
+缺帧处理参数、出生场景参数及完整计划也用于续采校验；旧批次缺少这些字段时需新建批次。
 
 每次生成 `results/datasets/collection_<时间>_<批次>/`：
 
@@ -115,6 +137,9 @@ python Gazebo_simulation/rl_training/privileged/collect_data.py --headless --sec
   `episodes` 记录每轮及其 `row_start`、`row_end`（从 1 开始，包含两端）。
   `rows` 为实际保存行数，`control_steps` 为已执行控制步数，`skipped_rows` 为缺帧而未记录的步数；
   一轮没有行时行号范围为 `null`。整张地图没有行则报错，不发布空训练集。
+  `spawn_randomization` 保存出生参数，`spawn_plans` 保存各地图指纹、种子和逐轮计划；
+  每轮 `spawn_scenario` 包含场景类型（`fixed` / `jitter` / `near_wall`）、基准出生点编号、
+  采样姿态及初始几何净空，可结合回合终止原因检查教师表现。该信息不增加 CSV 列。
 - `runtime_*/`：本次仿真的日志与运行状态。
 
 完整采集和增强结束后，仅原始与增强 CSV 原样复制至

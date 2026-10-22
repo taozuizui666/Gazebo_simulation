@@ -131,6 +131,9 @@ python rl_training/privileged/collect_data.py --headless
 `COLLECTION_SECONDS` 和 `COLLECTION_ROUNDS`。GUI 模式限制仿真速度、关闭阴影，
 并根据地图边界设置默认俯视视角；
 无 GUI 模式不限速，同时保留雷达与动作同步检查。
+`SPAWN_JITTER_ENABLED` 开启出生位置/朝向扰动；`RECOVERY_ENABLED` 开启近墙纠正场景，
+`RECOVERY_FRACTION=0.25` 表示约四分之一轮次从偏向墙壁的姿态开始。
+`--check` 会检查全部出生计划；几何检查通过后仍需短程验证教师的纠偏表现。
 采集雷达通过顶部 `LIDAR_CONFIG` 读取共享配置的扫描频率和原始点数，默认
 5.5 Hz、364 点/圈，按实车标准 SCAN 模式建模；输出仍为 200 个雷达值加动作标签。
 教师模型不修改；旧 1450 点/圈批次需保留原配置，新参数另开批次采集。

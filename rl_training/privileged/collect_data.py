@@ -33,7 +33,18 @@ WORLDS = [WORLD_DIR / name for name in (
 OUTPUT_DIR = ROOT / "results/datasets"          # 原始采集、增强数据、时序与日志
 DATASET_DIR = ROOT.parent / "dataset/simulation"  # 后续随机森林读取的副本
 COLLECTION_SECONDS = 3600                     # 每轮最多采集多少仿真秒
-COLLECTION_ROUNDS = 20                        # 每张地图采集多少轮，依次使用 JSON 中的评估出生点
+COLLECTION_ROUNDS = 20                        # 每张地图采集多少轮，以 JSON 中的评估出生点为基准
+SPAWN_JITTER_ENABLED = True                  # 普通轮次随机出生姿态；False 使用原出生姿态
+SPAWN_POSITION_JITTER_M = 0.03                # 普通轮次 x/y 各 ±3 cm；近墙轮次用于沿路方向
+SPAWN_YAW_JITTER_DEG = 10.0                   # 普通轮次朝向 ±10 度
+RECOVERY_ENABLED = True                      # 部分轮次从偏向墙壁的姿态开始，由原教师纠正
+RECOVERY_FRACTION = 0.25                      # 每图近墙轮数 = floor(总轮数 × 比例 + 0.5)
+RECOVERY_MAX_OFFSET_M = 0.12                  # 相对基准出生点，向左/右横移的最大值
+RECOVERY_CLEARANCE_M = (0.04, 0.08)           # 近墙时车体保守圆到墙的净空范围，不是雷达距离
+RECOVERY_YAW_DEG = (10.0, 20.0)               # 向横移一侧偏航的角度范围
+RECOVERY_FRONT_M = (0.15, 0.40)               # 前进方向保守车体首次接触障碍前的距离范围
+SPAWN_MARGIN_M = 0.01                        # 所有出生点、近墙纠正转弯路径的额外安全余量
+SPAWN_ATTEMPTS = 200                         # 候选姿态尝试上限；失败明确报错，不退回固定起点
 LIDAR_WAIT_SEC = 0.2                          # 每次等待新扫描的现实秒数；超时后继续驾驶，不生成该行
 MAX_CONSECUTIVE_LIDAR_MISSES = 5              # 连续多少个决策点缺帧后报错停止，避免一直空采
 GUI = False                                  # True：显示优先；False：无窗口、不限速采集
@@ -56,6 +67,16 @@ def write_metadata(directory, metadata):
 def count_rows(path):
     with path.open("rb") as rows:
         return sum(1 for _ in rows)
+
+
+def spawn_settings(step_seconds):
+    return {"position_jitter_m": SPAWN_POSITION_JITTER_M if SPAWN_JITTER_ENABLED else 0.0,
+            "yaw_jitter_deg": SPAWN_YAW_JITTER_DEG if SPAWN_JITTER_ENABLED else 0.0,
+            "recovery_fraction": RECOVERY_FRACTION if RECOVERY_ENABLED else 0.0,
+            "recovery_max_offset_m": RECOVERY_MAX_OFFSET_M,
+            "recovery_clearance_m": list(RECOVERY_CLEARANCE_M),
+            "recovery_yaw_deg": list(RECOVERY_YAW_DEG), "recovery_front_m": list(RECOVERY_FRONT_M),
+            "margin_m": SPAWN_MARGIN_M, "attempts": SPAWN_ATTEMPTS, "step_seconds": step_seconds}
 
 
 def augment_file(source, destination, vehicle, fraction, rng):
@@ -128,6 +149,7 @@ def main():
     from rl_training.common.observations import observation_specification
     from rl_training.common.rl_env import AicarGazeboEnv, SimulationDataError
     from rl_training.privileged.observation import GroundTruthMap
+    from rl_training.privileged.collection_spawns import build_spawn_plan
     import torch
 
     if not WORLDS or type(args.rounds) is not int or args.rounds < 1:
@@ -176,8 +198,13 @@ def main():
     worlds = [load_world_settings(path) for path in WORLDS]
     if len({world.world.stem for world in worlds}) != len(worlds):
         raise ValueError("地图文件名不能重复；每张地图按文件名保存一份训练集。")
-    for world in worlds:
-        GroundTruthMap(world.world)
+    spawn_config = spawn_settings(step_seconds)
+    spawn_plans = {}
+    for index, world in enumerate(worlds):
+        geometry = GroundTruthMap(world.world)
+        spawn_plans[world.world.stem] = {
+            "world": str(world.world), "world_sha256": geometry.sha256, "seed": SEED + index,
+            "rounds": build_spawn_plan(world, geometry, vehicle, args.rounds, SEED + index, spawn_config)}
     output_dir = args.output_dir.expanduser().resolve()
     dataset_dir = args.dataset_dir.expanduser().resolve()
     if output_dir.is_relative_to(dataset_dir.parent):
@@ -198,6 +225,8 @@ def main():
             raise ValueError("续采批次的教师模型与当前模型不一致。")
         if metadata.get("vehicle") != asdict(vehicle) or metadata.get("observation_spec") != spec:
             raise ValueError("续采批次的车辆/雷达或观测配置与当前配置不一致；请新建采集批次。")
+        if metadata.get("spawn_randomization") != spawn_config or metadata.get("spawn_plans") != spawn_plans:
+            raise ValueError("续采批次的出生场景/地图/种子与当前配置不一致；请新建采集批次。")
         saved_collection = metadata.get("collection", {})
         expected_collection = {"seconds_per_round": args.seconds, "rounds_per_map": args.rounds,
                                "step_seconds": step_seconds, "steps_per_round": max_steps,
@@ -234,6 +263,8 @@ def main():
                    if resume_directory is not None else "")
     print(f"{resume_note}教师：{model_path}\n地图：{pending_names}\n"
           f"运行模式：{mode}\n"
+          f"出生扰动：位置 ±{spawn_config['position_jitter_m']:g} m，朝向 ±{spawn_config['yaw_jitter_deg']:g}°；"
+          f"每图 {sum(s['kind'] == 'near_wall' for s in next(iter(spawn_plans.values()))['rounds'])} 轮近墙纠正\n"
           f"采集雷达：{vehicle.lidar_scan_hz:g} Hz，{vehicle.lidar_raw_samples} 原始点/圈，"
           f"输出 {vehicle.lidar_point_count} 桶（来源：{LIDAR_CONFIG}）\n"
           f"缺帧处理：最多等待 {LIDAR_WAIT_SEC:g} 现实秒，继续驾驶但不生成该行；"
@@ -261,13 +292,14 @@ def main():
         (directory / "raw").mkdir()
         (directory / "dropout").mkdir()
         metadata = {
-            "schema_version": 3, "batch": batch, "status": "collecting",
+            "schema_version": 4, "batch": batch, "status": "collecting",
             "created_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
             "source_directory": str(directory), "dataset_directory": str(dataset_dir / batch),
             "model": str(model_path), "model_sha256": hashlib.sha256(model_bytes).hexdigest(),
             "model_training_timesteps": saved.get("training_timesteps"),
             "teacher_vehicle": asdict(teacher_vehicle), "lidar_config_source": str(LIDAR_CONFIG.resolve()),
             "observation_spec": spec, "vehicle": asdict(vehicle), "seed": SEED, "gui": gui,
+            "spawn_randomization": spawn_config, "spawn_plans": spawn_plans,
             "collection": {"seconds_per_round": args.seconds, "rounds_per_map": args.rounds,
                            "real_time_factor": real_time_factor,
                            "step_seconds": step_seconds, "steps_per_round": max_steps,
@@ -302,7 +334,7 @@ def main():
             map_counts = Counter()
             env = AicarGazeboEnv(
                 role="eval", domain_id=ROS_DOMAIN, port=GAZEBO_PORT, header=header,
-                world=world.world, spawn_pose=world.eval_spawn_poses[0], seed=SEED,
+                world=world.world, spawn_pose=spawn_plans[stem]["rounds"][0]["pose"], seed=SEED,
                 settings=replace(settings, workspace_bounds=world.workspace_bounds),
                 reward_settings=config.RewardSettings(**saved["reward"]),
                 log_dir=directory / f"runtime_{stem}",
@@ -315,8 +347,12 @@ def main():
                     (directory / events_name).open("x", encoding="utf-8") as events:
                 for index in range(args.rounds):
                     number = len(metadata["episodes"]) + 1
-                    env.spawn_pose = tuple(world.eval_spawn_poses[index % len(world.eval_spawn_poses)])
+                    scenario = spawn_plans[stem]["rounds"][index]
+                    env.spawn_pose = tuple(scenario["pose"])
                     obs, current = env.reset(seed=SEED + number - 1)
+                    print(f"{stem} 第 {index + 1}/{args.rounds} 轮开始：{scenario['kind']}，"
+                          f"车体净空 {scenario['clearance_m']:.3f} m，"
+                          f"前方净空 {scenario['front_clearance_m']:.3f} m。", flush=True)
                     round_started = time.monotonic()
                     counts = Counter()
                     previous_stamp = -1
@@ -385,6 +421,7 @@ def main():
                         "group_id": f"{batch}/{stem}", "round": index + 1, "world": str(world.world),
                         "world_sha256": env.ground_truth_map.sha256,
                         "spawn_pose": env.spawn_pose, "settings": asdict(env.settings),
+                        "spawn_scenario": scenario,
                         "raw_file": raw_name, "dropout_file": dropout_name, "timing_file": timing_name,
                         "row_start": row_start if rows else None, "row_end": map_rows if rows else None,
                         "rows": rows, "control_steps": following["step"], "skipped_rows": skipped_rows,
