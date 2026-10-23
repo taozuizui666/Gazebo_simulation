@@ -48,6 +48,37 @@ ros2 topic pub --rate 10 /steering_label std_msgs/msg/Int32 '{data: 7}'
 安装依赖、切换地图、后台运行及控制命令见 [仿真使用说明](docs/simulation.md)。
 轮速公式、实车 PID 接口、雷达列格式及标定范围见 [车辆与雷达说明](docs/vehicle_and_lidar.md)。
 
+## 随机森林驾驶
+
+使用 [run_random_forest.py](run_random_forest.py) 观看训练好的随机森林控制小车。
+默认加载 `../software/ML_model/simulation/randomForest.joblib`，在保留验证地图
+`ellipse_002` 的第一个评估出生点启动。模型同目录需保留配套 `training_report.json`。
+脚本自动加载 ROS/Gazebo/项目环境；首次使用先完成上面的构建。
+
+```bash
+cd /home/zui/dissertation/Gazebo_simulation
+
+# 检查模型、雷达格式、标签和地图，并试推理；不启动 Gazebo
+python run_random_forest.py --check
+
+# 打开 Gazebo，Ctrl+C 停车并关闭本次仿真
+python run_random_forest.py
+
+# 指定模型和地图
+python run_random_forest.py --model ../software/ML_model/simulation/randomForest.joblib --world assets/worlds/simple/train_world3.sdf
+
+# 无窗口运行：收到第一帧有效雷达后，再运行 10 仿真秒
+python run_random_forest.py --headless --seconds 10
+```
+
+模型路径、默认地图、车辆配置、ROS domain 和 Gazebo 端口集中在脚本顶部。
+`--model` 相对路径以当前终端目录为基准，`--world` 相对路径以 `Gazebo_simulation` 为基准。
+雷达 `/lidar_distances` 的毫米整数按保存的特征索引直接输入模型，零值保持不变；
+预测的原始转向标签发送到 `/steering_label`，由现有控制器转换为左右轮速度。
+无效或全零帧停车；缺帧后由现有控制器按 `COMMAND_TIMEOUT_MS` 超时停车。
+仿真日志写入 `results/random_forest/gazebo.log`，每次运行覆盖。
+此入口用于观察闭环驾驶效果，未加入碰撞检测、自动重置或验收判定。
+
 ## 多地图训练入口
 
 ```bash
