@@ -25,6 +25,17 @@ GAZEBO_PORT = 11553
 STARTUP_TIMEOUT_SEC = 60.0    # 等待首帧雷达的现实秒数。
 STATUS_INTERVAL_SEC = 2.0     # 终端状态输出间隔，现实秒数。
 LOG_PATH = ROOT / "results/random_forest/gazebo.log"
+# 批量评分使用固定步进、无 GUI；单次驾驶仍由 GUI 控制。
+EVAL_WORLDS = tuple(f"assets/worlds/simple/{name}.sdf" for name in (
+    "train_world3", "rounded_rectangle_001", "rounded_rectangle_003", "ellipse_002"))
+EVAL_EPISODES = 5
+EVAL_SECONDS = 180.0
+EVAL_SCENARIOS = ("normal",)  # 可加入 "dropout05", "dropout10", "sector"
+SAFE_CLEARANCE_M = 0.05       # 保守车身圆盘到障碍的净空阈值
+CHECKPOINT_RADIUS_M = 0.30   # 环路检查点到达半径
+MIN_EVAL_SCORE = 90.0
+MIN_SUCCESS_RATE = 0.95
+EVAL_OUTPUT_DIR = ROOT / "results/random_forest"
 # ===================== 配置区结束 =====================
 
 
@@ -173,11 +184,17 @@ def drive(args, world, vehicle, classifier, indices):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=MODEL, help="训练导出的 joblib；同目录需有 training_report.json")
-    parser.add_argument("--world", default=WORLD, help="地图 SDF；相对路径以 Gazebo_simulation 为基准")
+    parser.add_argument("--world", default=None, help="地图 SDF；相对路径以 Gazebo_simulation 为基准")
     parser.add_argument("--check", action="store_true", help="检查模型、地图与车辆配置，不启动仿真")
     parser.add_argument("--headless", action="store_true", help="关闭 Gazebo 图形窗口")
     parser.add_argument("--seconds", type=float, default=RUN_SECONDS, help="运行仿真秒数；0 表示一直运行")
+    parser.add_argument("--evaluate", action="store_true", help="多地图闭环评分，固定步进且无 GUI")
+    parser.add_argument("--episodes", type=int, default=EVAL_EPISODES)
+    parser.add_argument("--eval-seconds", type=float, default=EVAL_SECONDS)
+    parser.add_argument("--scenario", action="append", choices=("normal", "dropout05", "dropout10", "sector"))
     args = parser.parse_args()
+    if args.episodes < 1 or not math.isfinite(args.eval_seconds) or args.eval_seconds <= 0:
+        parser.error("episodes 和 eval-seconds 必须为正数。")
     if not math.isfinite(args.seconds) or args.seconds < 0:
         parser.error("--seconds 必须为非负有限数。")
     if os.environ.get("RF_RUN_ENV_READY") != "1":
@@ -194,10 +211,28 @@ def main():
         model = args.model.expanduser().resolve(strict=True)
         vehicle = load_config(CONFIG_HEADER)
         classifier, indices = load_model(model, vehicle)
-        world = load_world_settings(args.world)
+        world = load_world_settings(args.world or WORLD)
         print(f"模型：{model}\n输入特征数：{len(indices)}；输出标签：{classifier.classes_.tolist()}\n"
               f"地图：{world.world}\n出生点：{world.eval_spawn_poses[0]}\n"
               f"目标前进速度：{vehicle.forward_speed_mps:g} m/s；ROS domain：{ROS_DOMAIN}", flush=True)
+        if args.evaluate:
+            if not EVAL_WORLDS or not EVAL_SCENARIOS:
+                raise ValueError("EVAL_WORLDS / EVAL_SCENARIOS 不能为空。")
+            if not all(math.isfinite(v) and v > 0 for v in (SAFE_CLEARANCE_M, CHECKPOINT_RADIUS_M)):
+                raise ValueError("净空阈值和检查点半径必须为正有限数。")
+            if not 0 <= MIN_EVAL_SCORE <= 100 or not 0 < MIN_SUCCESS_RATE <= 1:
+                raise ValueError("评分阈值应在 [0,100]，成功率阈值在 (0,1]。")
+            if not set(args.scenario or EVAL_SCENARIOS) <= {"normal", "dropout05", "dropout10", "sector"}:
+                raise ValueError("未知 EVAL_SCENARIOS。")
+            from rl_training.common.forest_evaluation import evaluate, CheckpointProgress, validate_ring_world
+            for name in ([args.world] if args.world else EVAL_WORLDS):
+                settings = load_world_settings(name)
+                validate_ring_world(settings)
+                pose = settings.eval_spawn_poses[0]
+                CheckpointProgress(settings.train_spawn_poses, pose[:2], pose[3], CHECKPOINT_RADIUS_M)
+            if not args.check:
+                evaluate(args, sys.modules[__name__], classifier, indices, vehicle)
+                return 0
         if args.check:
             print("配置与试推理检查通过；未启动仿真。")
         else:
