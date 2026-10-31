@@ -9,7 +9,7 @@
 | [worlds/simple/train_world3.sdf](worlds/simple/train_world3.sdf) | 当前训练、评估与手动仿真的默认地图 |
 | [worlds/simple/train_world3.json](worlds/simple/train_world3.json) | 当前地图的训练/评估出生点和工作边界 |
 | `worlds/simple/` | 原手绘地图及全部简单地图的 SDF/JSON；预览位于 `../results/maps/simple/` |
-| `worlds/complex/` | 预留复杂地图目录 |
+| `worlds/complex/` | 复杂组合道路 `combined_001.sdf` 及同名出生点 JSON |
 | [urdf/simple_car1.urdf](urdf/simple_car1.urdf) | 当前车辆几何模板，启动时套用共享车辆参数 |
 | [models/wall/](models/wall) | `model://wall` 所需的模型描述与 SDF |
 
@@ -35,3 +35,5 @@ RL 通过 `--world` 选择地图，自动读取同名 JSON 的出生点和工作
 修改墙高参见 [工具说明](../tools/README.md)。
 
 新增死胡同地图：`worlds/simple/dead_end_001.sdf`，同名 JSON 提供出生点及边界；生成命令见工具说明。
+
+复杂组合地图包含连续弯、S 弯、宽窄变化、直角弯及中央 8 字分支，生成命令见 [工具说明](../tools/README.md#复杂组合地图)。
