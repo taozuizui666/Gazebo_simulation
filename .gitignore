@@ -14,6 +14,10 @@ rl_models/privileged/policies/
 rl_models/privileged/logs/
 rl_models/privileged/runtime/
 
+# PPO 实验目录由训练脚本在本机生成；仅保留目录说明文件。
+rl_models/privileged/*
+!rl_models/privileged/README.md
+
 # 网页快照与发布工作区
 rl_models/runtime/
 

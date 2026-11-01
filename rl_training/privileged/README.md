@@ -166,6 +166,10 @@ PPO、奖励与仿真配置共用 [common/config.py](../common/config.py)。
 
 ## 多地图联合训练
 
+本轮 8 字形与直角矩形训练请先读 [仿真与 RL 训练待办](../../../article/planning/experiment_data_plan.md)：
+当前代码仍为旧五图配置，新配置尚未获批实施；待办文档包含待确认方案、兼容性问题、检查通过条件、启动与续训步骤。
+下方为通用入口，不能据此认为本轮新地图已经配置完成。
+
 编辑 [train_multi_map.py](train_multi_map.py) 顶部的配置，然后运行：
 
 ```bash

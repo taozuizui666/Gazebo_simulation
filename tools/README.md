@@ -93,7 +93,7 @@ python tools/generate_maps.py --templates rectangle figure_eight --count 2
 直角矩形保留真正的 90 度拐角；8 字形中心为平面开放交叉口，无桥梁。
 净宽仍为 0.35～0.40 m（交叉口更宽），墙高 0.3 m，自动调用降墙高工具。
 窄直角弯需要重新验证车辆转弯能力；当前奖励不约束 8 字路线，车辆可能只绕单圈。
-`assets/worlds/complex/` 预留给后续复杂地图，目前为空。
+`assets/worlds/complex/` 保存复杂组合地图，见下方生成命令。
 
 ## 死胡同地图
 
@@ -109,3 +109,23 @@ PNG/PDF 位于 `results/maps/simple/`。T 字左右及下方三个末端均封�
 这是几何空间检查，尚未验证原地旋转控制或 RL 脱困策略。
 后续需添加原地旋转动作、调整低速/卡住判定及脱困奖励；当前训练仍按原有巡航规则运行。
 未来脱困成功应按车辆离开某条死胡同支路、返回 T 字交汇处判定，而不是驶出地图边界。
+
+## 复杂组合地图
+
+`generate_combined_map.py` 生成一张左右双环的组合道路：左环含连续弯、S 弯和
+0.55 → 0.35 m 渐窄路段，右环含四个直角弯及 0.40～0.60 m 宽窄过渡，
+中央为可选分支的 8 字交叉口。直角处净宽为 0.60 m，墙高为 0.30 m。
+
+```bash
+python -m pip install shapely
+python tools/generate_combined_map.py
+ros2 launch my_gazebo_launch train_world.launch.py world:=assets/worlds/complex/combined_001.sdf
+python rl_training/privileged/train.py --world assets/worlds/complex/combined_001.sdf
+```
+
+地图与同名 JSON 保存到 `assets/worlds/complex/`；PNG/PDF 保存到
+`results/maps/complex/`。可用 `--output-dir` 和 `--preview-dir` 覆盖目录。
+控制点、各段起止净宽和出生点所在路段集中在脚本顶部常量区，生成过程自动调用降墙高脚本。
+JSON 含 8 个训练出生点、16 个双向评估出生点、工作边界和参考中心线。
+参考中心线用于几何检查，不会强制 RL 在交叉口选择特定路线。
+地图只使用静态 box 墙体，兼容当前特权观测；已有简单地图模型能否通过所有路段须另行验收。

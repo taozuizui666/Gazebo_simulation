@@ -21,23 +21,21 @@ from zoneinfo import ZoneInfo
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parents[2]
-MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"
+MODEL = ROOT / "rl_models/privileged/teacher_campaign_20261101/policies/validated_privileged_2712562_20261101_105001/model.zip"
 LIDAR_CONFIG = ROOT / "my_gazebo_launch/vehicle_config.h"  # 采集雷达的扫描频率和原始点数
 WORLD_DIR = ROOT / "assets/worlds/simple"
 WORLDS = [WORLD_DIR / name for name in (
-    "train_world3.sdf",
-    "rounded_rectangle_001.sdf",
-    "ellipse_002.sdf",
-    "rounded_rectangle_003.sdf",
+    "figure_eight_002.sdf",
+    "rectangle_001.sdf",
 )]
 OUTPUT_DIR = ROOT / "results/datasets"          # 原始采集、增强数据、时序与日志
 DATASET_DIR = ROOT.parent / "dataset/simulation"  # 后续随机森林读取的副本
-COLLECTION_SECONDS = 3600                     # 每轮最多采集多少仿真秒
-COLLECTION_ROUNDS = 20                        # 每张地图采集多少轮，以 JSON 中的评估出生点为基准
+COLLECTION_SECONDS = 300                      # 与本轮教师独立验收时限一致
+COLLECTION_ROUNDS = 16                       # 每图 8 个正反向起点各重复两轮
 SPAWN_JITTER_ENABLED = True                  # 普通轮次随机出生姿态；False 使用原出生姿态
 SPAWN_POSITION_JITTER_M = 0.03                # 普通轮次 x/y 各 ±3 cm；近墙轮次用于沿路方向
 SPAWN_YAW_JITTER_DEG = 10.0                   # 普通轮次朝向 ±10 度
-RECOVERY_ENABLED = True                      # 部分轮次从偏向墙壁的姿态开始，由原教师纠正
+RECOVERY_ENABLED = False                     # 本轮先采集已验收扰动范围内的普通驾驶
 RECOVERY_FRACTION = 0.25                      # 每图近墙轮数 = floor(总轮数 × 比例 + 0.5)
 RECOVERY_MAX_OFFSET_M = 0.12                  # 相对基准出生点，向左/右横移的最大值
 RECOVERY_CLEARANCE_M = (0.04, 0.08)           # 近墙时车体保守圆到墙的净空范围，不是雷达距离

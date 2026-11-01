@@ -18,3 +18,5 @@
 
 地图生成器和独立评估同时保存 PNG/PDF；历史 PNG 原样保存，不伪造矢量 PDF。
 截图仍为 PNG。生成图像由 Git 忽略，本索引纳入版本管理。
+
+复杂组合道路预览：[PNG](maps/complex/combined_001.png)、[PDF](maps/complex/combined_001.pdf)。

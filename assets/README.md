@@ -6,34 +6,14 @@
 
 | 路径 | 用途 |
 | --- | --- |
-| [worlds/simple/train_world3.sdf](worlds/simple/train_world3.sdf) | 当前训练、评估与手动仿真的默认地图 |
-| [worlds/simple/train_world3.json](worlds/simple/train_world3.json) | 当前地图的训练/评估出生点和工作边界 |
-| `worlds/simple/` | 原手绘地图及全部简单地图的 SDF/JSON；预览位于 `../results/maps/simple/` |
-| `worlds/complex/` | 复杂组合道路 `combined_001.sdf` 及同名出生点 JSON |
+| `worlds/simple/` | 待生成的统一宽度六类简单地图及同名 JSON |
+| `worlds/complex/` | 待由简单地图组合生成的统一宽度组合地图及同名 JSON |
 | [urdf/simple_car1.urdf](urdf/simple_car1.urdf) | 当前车辆几何模板，启动时套用共享车辆参数 |
 | [models/wall/](models/wall) | `model://wall` 所需的模型描述与 SDF |
 
 `setup.py` 按同样相对路径安装本目录。启动入口把 `assets/models/` 加入
 Gazebo 模型搜索路径；地面和光源使用本机 Gazebo 资源。
 
-原手绘地图是 `train_world3.sdf`，旧启动代码和训练记录均使用它。
-旧简单场景和临时预览地图已移至 `archive/worlds/`。
-历史编辑器导出文件及旧车辆素材位于 [archive/](../archive/README.md)，不参与正式安装。
+旧地图与预览已清除。下一轮会生成道路宽度统一的直线、直角弯、S 弯、圆角弯、椭圆弯和 8 字路口；组合地图只由这些场景构成。
 
-切换地图示例（在 `Gazebo_simulation` 目录）：
-
-```bash
-ros2 launch my_gazebo_launch train_world.launch.py \
-  world:=assets/worlds/simple/ellipse_002.sdf
-```
-
-RL 通过 `--world` 选择地图，自动读取同名 JSON 的出生点和工作边界；默认地图在
-`rl_training/common/config.py` 顶部配置。出生点、边界也可用命令行覆盖，详见
-[RL 使用说明](../rl_training/README.md#选择地图与出生点)。
-手动仿真未指定位置时读取该地图 JSON 的第一个训练出生点；没有 JSON 时显式传入 x/y/yaw。
-批量生成地图参见 [工具说明](../tools/README.md#批量生成训练地图)，新地图需重新评估模型。
-修改墙高参见 [工具说明](../tools/README.md)。
-
-新增死胡同地图：`worlds/simple/dead_end_001.sdf`，同名 JSON 提供出生点及边界；生成命令见工具说明。
-
-复杂组合地图包含连续弯、S 弯、宽窄变化、直角弯及中央 8 字分支，生成命令见 [工具说明](../tools/README.md#复杂组合地图)。
+RL 通过 `--world` 选择地图，并自动读取同名 JSON 的出生点和工作边界。新地图生成后，再将默认地图和训练配置指向对应文件。历史编辑器导出文件及旧车辆素材仍位于 [archive/](../archive/README.md)，不参与正式安装。

@@ -132,6 +132,9 @@ python run_random_forest.py --evaluate --scenario normal --scenario dropout05 --
 
 ## 多地图训练入口
 
+本轮 8 字形与直角矩形任务先阅读 [仿真与 RL 训练待办](../article/planning/experiment_data_plan.md)。
+当前脚本仍是旧五图配置；先确认并实施配置修改，再按待办文档检查和启动。
+
 ```bash
 cd /home/zui/dissertation/Gazebo_simulation
 

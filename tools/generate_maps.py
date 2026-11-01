@@ -15,7 +15,7 @@ from adjust_wall_height import DEFAULT_WALL_HEIGHT_M, adjust_wall_height
 SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = SIMULATION_ROOT / "assets/worlds/simple"
 DEFAULT_PREVIEW_DIR = SIMULATION_ROOT / "results/maps"  # 按地图输出目录名分批保存 PNG/PDF。
-BASE_WORLD_FILE = SIMULATION_ROOT / "assets/worlds/simple/train_world3.sdf"  # 复用光照、地面、物理配置。
+BASE_WORLD_FILE = SIMULATION_ROOT / "assets/world_base.sdf"  # 只复用地面与光照，不依赖旧赛道。
 DEFAULT_MAP_COUNT = 6
 DEFAULT_TEMPLATES = ("rounded_rectangle", "ellipse")
 DEFAULT_SEED = 42  # 相同参数和种子生成相同地图。
@@ -53,6 +53,17 @@ def centerline(template, width, height, radius):
             c, s = math.cos(angle), math.sin(angle)
             norm = math.hypot(c / a, s / b)
             result.append(((a * c, b * s), (c / a / norm, s / b / norm)))
+        return result
+    if template == "s_bend":
+        count = max(48, math.ceil(2 * math.pi * max(a, b) / CURVE_SEGMENT_LENGTH_M))
+        amplitude = .18 * b
+        result = []
+        for i in range(count):
+            t = 2 * math.pi * i / count
+            x, y = a * math.sin(t), b * math.cos(t) + amplitude * math.sin(2 * t)
+            dx, dy = a * math.cos(t), -b * math.sin(t) + 2 * amplitude * math.cos(2 * t)
+            norm = math.hypot(dx, dy)
+            result.append(((x, y), (dy / norm, -dx / norm)))
         return result
     count = max(3, math.ceil(math.pi * radius / 2 / CURVE_SEGMENT_LENGTH_M))
     result = []
@@ -218,6 +229,13 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
         for t in (math.pi/4, 3*math.pi/4, 5*math.pi/4, 7*math.pi/4):
             forward.append((a*math.sin(2*t), b*math.sin(t), 0.,
                             math.atan2(b*math.cos(t), 2*a*math.cos(2*t))))
+    if template == "s_bend":
+        amplitude = .18 * b
+        forward = []
+        for t in (0., math.pi/2, math.pi, 3*math.pi/2):
+            x, y = a * math.sin(t), b * math.cos(t) + amplitude * math.sin(2 * t)
+            dx, dy = a * math.cos(t), -b * math.sin(t) + 2 * amplitude * math.cos(2 * t)
+            forward.append((x, y, 0., math.atan2(dy, dx)))
     if template == "dead_end":
         forward = [(0., -b+road_width, 0., -math.pi/2),
                    (0., -b+height*.35, 0., -math.pi/2),
@@ -254,7 +272,7 @@ def draw_preview(axis, boxes, settings):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=DEFAULT_MAP_COUNT)
-    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "figure_eight", "dead_end"),
+    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "s_bend", "figure_eight", "dead_end"),
                         default=DEFAULT_TEMPLATES)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
