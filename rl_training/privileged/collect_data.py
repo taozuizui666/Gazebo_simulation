@@ -21,12 +21,12 @@ from zoneinfo import ZoneInfo
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parents[2]
-MODEL = ROOT / "rl_models/privileged/teacher_campaign_20261101/policies/validated_privileged_2712562_20261101_105001/model.zip"
+MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"
 LIDAR_CONFIG = ROOT / "my_gazebo_launch/vehicle_config.h"  # 采集雷达的扫描频率和原始点数
 WORLD_DIR = ROOT / "assets/worlds/simple"
 WORLDS = [WORLD_DIR / name for name in (
-    "figure_eight_002.sdf",
-    "rectangle_001.sdf",
+    "rectangle_001.sdf", "s_bend_002.sdf", "rounded_rectangle_003.sdf",
+    "ellipse_004.sdf", "figure_eight_005.sdf",
 )]
 OUTPUT_DIR = ROOT / "results/datasets"          # 原始采集、增强数据、时序与日志
 DATASET_DIR = ROOT.parent / "dataset/simulation"  # 后续随机森林读取的副本

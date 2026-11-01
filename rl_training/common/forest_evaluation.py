@@ -13,8 +13,7 @@ import numpy as np
 
 def validate_ring_world(world):
     metadata = json.loads(world.world.with_suffix(".json").read_text())
-    if (metadata.get("template") not in ("ellipse", "rounded_rectangle", "rectangle")
-            and world.world.stem != "train_world3"):
+    if metadata.get("template") not in ("ellipse", "rounded_rectangle", "rectangle"):
         raise ValueError("检查点评分仅支持简单环路；此地图需先定义专用路线和成功条件。")
 
 

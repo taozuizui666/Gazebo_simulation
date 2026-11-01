@@ -8,23 +8,22 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 WORLD_DIR = ROOT / "assets/worlds/simple"
 TRAIN_WORLDS = [WORLD_DIR / name for name in (
-    "train_world3.sdf", "rounded_rectangle_001.sdf", "rounded_rectangle_003.sdf",
-    "ellipse_002.sdf", "ellipse_004.sdf",
-    "figure_eight_002.sdf", "rectangle_001.sdf")]
+    "rectangle_001.sdf", "s_bend_002.sdf", "rounded_rectangle_003.sdf",
+    "ellipse_004.sdf", "figure_eight_005.sdf")]
 # 仅用于模型选择，不参与梯度更新；最终泛化验收应另用未参与选模的地图。
-EVAL_WORLDS = [WORLD_DIR / "rounded_rectangle_005.sdf", WORLD_DIR / "ellipse_006.sdf"]
-OUTPUT_DIR = ROOT / "rl_models/privileged/figure8_rectangle"
-LOG_DIR = ROOT / "rl_models/privileged/logs/figure8_rectangle"
+EVAL_WORLDS = [ROOT / "assets/worlds/validation" / name for name in (
+    "validation_rectangle_001.sdf", "validation_s_bend_001.sdf")]
+OUTPUT_DIR = ROOT / "rl_models/privileged/five_simple_20261101"
+LOG_DIR = ROOT / "rl_models/privileged/logs/five_simple_20261101"
 ENABLE_PROGRESS = False            # 自动启动本地手机进度页；False 不管理发布器
 PUBLISH_TO_GITHUB = False           # ENABLE_PROGRESS=True 时，同时同步 GitHub
-AUTO_RESUME = True                 # 优先接着 OUTPUT_DIR 中最近的多地图训练
+AUTO_RESUME = False                # 新实验固定从 RESUME_MODEL 初始化，不扫描旧实验目录
 RESUME_MODEL = ROOT / "rl_models/privileged/policies/validated_privileged_2392588_20261011_074049/model.zip"  # 无自动续训历史时使用
 CONFIG_HEADER = RESUME_MODEL.parent / "vehicle_config.h"  # 速度/轮距与续训源保持一致
 RESUME_ALLOW_VEHICLE_CHANGE = False
 # 训练正常结束后独立验收；Ctrl+C/STOP 不自动启动验收。
 AUTO_VALIDATE = False
-VALIDATION_WORLDS = [ROOT / "assets/worlds/validation" / name for name in (
-    "validation_rounded_rectangle_001.sdf", "validation_ellipse_002.sdf")]
+VALIDATION_WORLDS = []
 VALIDATION_MODEL_NAME = "best_model.zip"  # 尚无 best 时使用本次 final
 VALIDATION_EPISODES_PER_MAP = 8
 VALIDATION_MIN_SCENARIOS = 8        # 至少这么多个不同的初始位置/朝向
@@ -35,7 +34,7 @@ VALIDATION_YAW_JITTER_DEG = 10.0
 VALIDATION_SEED = 20261012
 # 所有回合必须零碰撞、卡住、局部绕圈、持续低速和越界才更新 latest_validated。
 # 验收在训练预算结束后进行，会额外耗时；不更新策略权重。
-NUM_TRAIN_ENVS = 6                  # 独立 Gazebo 实例，共同更新一个 PPO
+NUM_TRAIN_ENVS = 5                  # 五张训练图各占一个 Gazebo 实例，回合边界后轮换。
 STEP_SIM_TIME_SEC = 0.2             # 一次动作持续的仿真秒数，不是加速倍率
 EPISODES_PER_MAP = 10               # 每个 worker 完成多少回合后换地图
 MAX_STEPS_PER_EPISODE = 1000         # 默认每回合最多 200 仿真秒

@@ -16,13 +16,13 @@ SIMULATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = SIMULATION_ROOT / "assets/worlds/simple"
 DEFAULT_PREVIEW_DIR = SIMULATION_ROOT / "results/maps"  # 按地图输出目录名分批保存 PNG/PDF。
 BASE_WORLD_FILE = SIMULATION_ROOT / "assets/world_base.sdf"  # 只复用地面与光照，不依赖旧赛道。
-DEFAULT_MAP_COUNT = 6
-DEFAULT_TEMPLATES = ("rounded_rectangle", "ellipse")
+DEFAULT_MAP_COUNT = 5
+DEFAULT_TEMPLATES = ("rectangle", "s_bend", "rounded_rectangle", "ellipse", "figure_eight")
 DEFAULT_SEED = 42  # 相同参数和种子生成相同地图。
-WIDTH_RANGE_M = (2.4, 3.0)  # 道路中心线的水平跨度；接近现有手绘地图。
-HEIGHT_RANGE_M = (3.4, 4.2)  # 道路中心线的垂直跨度。
-ROAD_WIDTH_RANGE_M = (0.35, 0.40)  # 两侧墙之间的道路净宽；原地图约 0.34～0.40 m。
-CORNER_RADIUS_RANGE_M = (0.45, 0.65)  # 圆角矩形中心线的弯道半径。
+WIDTH_RANGE_M = (3.2, 3.2)  # 统一道路中心线水平跨度。
+HEIGHT_RANGE_M = (4.8, 4.8)  # 统一道路中心线垂直跨度。
+ROAD_WIDTH_RANGE_M = (0.40, 0.40)  # 两侧墙之间的统一道路净宽。
+CORNER_RADIUS_RANGE_M = (0.60, 0.60)  # 圆角矩形中心线的弯道半径。
 WALL_HEIGHT_M = DEFAULT_WALL_HEIGHT_M  # 默认跟随降墙高脚本（当前 0.3 m）。
 WALL_THICKNESS_M = 0.15
 CURVE_SEGMENT_LENGTH_M = 0.12  # 较短曲线段让窄道路的弯道接缝更平滑。
@@ -158,24 +158,6 @@ def open_crossing(boxes, points, road_width):
     return result
 
 
-def dead_end_boxes(width, height, road_width):
-    """T 形通道：左右及下方三个末端均封闭。"""
-    a, b = width/2, height/2
-    offset = (road_width + WALL_THICKNESS_M)/2
-    bottom = -b - WALL_THICKNESS_M/2
-    segments = [((-a, b+offset), (a, b+offset)),
-                ((-a, b-offset), (-offset, b-offset)),
-                ((offset, b-offset), (a, b-offset)),
-                ((-offset, bottom), (-offset, b-offset)),
-                ((offset, bottom), (offset, b-offset)),
-                ((-offset, bottom), (offset, bottom)),
-                ((-a, b-offset), (-a, b+offset)),
-                ((a, b-offset), (a, b+offset))]
-    return [((x1+x2)/2, (y1+y2)/2,
-             math.hypot(x2-x1, y2-y1)+WALL_THICKNESS_M, math.atan2(y2-y1, x2-x1))
-            for (x1, y1), (x2, y2) in segments]
-
-
 def wall_polygons(boxes):
     polygons = []
     for x, y, length, yaw in boxes:
@@ -236,11 +218,6 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
             x, y = a * math.sin(t), b * math.cos(t) + amplitude * math.sin(2 * t)
             dx, dy = a * math.cos(t), -b * math.sin(t) + 2 * amplitude * math.cos(2 * t)
             forward.append((x, y, 0., math.atan2(dy, dx)))
-    if template == "dead_end":
-        forward = [(0., -b+road_width, 0., -math.pi/2),
-                   (0., -b+height*.35, 0., -math.pi/2),
-                   (0., -b+height*.65, 0., -math.pi/2),
-                   (-a/2, b, 0., 0.)]
     reverse = [(x, y, z, math.atan2(math.sin(yaw+math.pi), math.cos(yaw+math.pi)))
                for x, y, z, yaw in forward]
     vertices = [point for polygon in wall_polygons(boxes) for point in polygon]
@@ -250,7 +227,7 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
         "parameters": {"width_m": width, "height_m": height, "road_width_m": road_width,
                        "corner_radius_m": radius if template == "rounded_rectangle" else None,
                        "wall_height_m": WALL_HEIGHT_M, "wall_thickness_m": WALL_THICKNESS_M},
-        "train_spawn_poses": forward if template == "dead_end" else [forward[0], reverse[1], forward[2], reverse[3]],
+        "train_spawn_poses": [forward[0], reverse[1], forward[2], reverse[3]],
         "eval_spawn_poses": forward + reverse,
         "workspace_bounds": [min(xs)-WORKSPACE_PADDING_M, max(xs)+WORKSPACE_PADDING_M,
                              min(ys)-WORKSPACE_PADDING_M, max(ys)+WORKSPACE_PADDING_M],
@@ -272,7 +249,7 @@ def draw_preview(axis, boxes, settings):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=DEFAULT_MAP_COUNT)
-    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "s_bend", "figure_eight", "dead_end"),
+    parser.add_argument("--templates", nargs="+", choices=("rounded_rectangle", "ellipse", "rectangle", "s_bend", "figure_eight"),
                         default=DEFAULT_TEMPLATES)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -314,15 +291,10 @@ def main():
                 curvature = abs(dx*ddy-dy*ddx) / (dx*dx+dy*dy)**1.5
                 if offset*curvature >= 1:
                     parser.error("8 字弯道过窄；请增大地图尺寸或减小道路宽度。")
-        if template == "dead_end":
-            if width <= 4*offset or height <= 3*road_width:
-                parser.error("死胡同地图过小；宽度须大于 2×(道路净宽+墙厚)，高度须大于三倍道路净宽。")
-            boxes = dead_end_boxes(width, height, road_width)
-        else:
-            points = centerline(template, width, height, radius)
-            boxes = wall_boxes(points, road_width)
-            if template == "figure_eight":
-                boxes = open_crossing(boxes, points, road_width)
+        points = centerline(template, width, height, radius)
+        boxes = wall_boxes(points, road_width)
+        if template == "figure_eight":
+            boxes = open_crossing(boxes, points, road_width)
         name = f"{template}_{index+1:03d}"
         settings = map_settings(template, width, height, road_width, radius, args.seed, boxes)
         maps.append((name, boxes, settings))

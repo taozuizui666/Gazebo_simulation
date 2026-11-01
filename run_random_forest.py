@@ -15,7 +15,7 @@ import time
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT.parent / "software/ML_model/simulation/randomForest.joblib"
-WORLD = "assets/worlds/simple/ellipse_002.sdf"  # 本次训练保留的验证地图。
+WORLD = "assets/worlds/simple/rounded_rectangle_003.sdf"  # 新五类简单图中的默认手动地图。
 CONFIG_HEADER = ROOT / "my_gazebo_launch/vehicle_config.h"
 GUI = True
 RUN_SECONDS = 0.0             # 第一帧雷达之后的仿真秒数；0 表示一直运行，Ctrl+C 退出。
@@ -27,7 +27,7 @@ STATUS_INTERVAL_SEC = 2.0     # 终端状态输出间隔，现实秒数。
 LOG_PATH = ROOT / "results/random_forest/gazebo.log"
 # 批量评分使用固定步进、无 GUI；单次驾驶仍由 GUI 控制。
 EVAL_WORLDS = tuple(f"assets/worlds/simple/{name}.sdf" for name in (
-    "train_world3", "rounded_rectangle_001", "rounded_rectangle_003", "ellipse_002"))
+    "rectangle_001", "rounded_rectangle_003", "ellipse_004"))
 EVAL_EPISODES = 5
 EVAL_SECONDS = 180.0
 EVAL_SCENARIOS = ("normal",)  # 可加入 "dropout05", "dropout10", "sector"
