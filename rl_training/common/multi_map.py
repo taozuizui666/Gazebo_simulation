@@ -119,7 +119,7 @@ class MultiMapEnv(gym.Env):
             self.records.append({key: info[key] for key in (
                 'world', 'spawn_index', 'spawn_pose', 'termination_reason',
                 'episode_distance_m', 'episode_sim_time_sec', 'episode_mean_speed_mps',
-                'speed_compliance', 'is_success')})
+                'speed_compliance', 'is_success', 'route_failed', 'route_switches')})
         return observation, reward, terminated, truncated, info
 
     def close(self):

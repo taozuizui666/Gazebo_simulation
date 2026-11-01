@@ -157,7 +157,7 @@ python rl_training/privileged/train_multi_map.py
 | 模型 | 代码 | 已验证结果 |
 | --- | --- | --- |
 | 雷达输入 PPO | [lidar/train.py](rl_training/lidar/train.py) | [257,276 步，0.1 m/s](rl_models/lidar/README.md) |
-| 特权环境场 PPO | [privileged/train.py](rl_training/privileged/train.py) | [2,392,588 步，0.2 m/s](rl_models/privileged/README.md) |
+| 特权环境场 PPO | [privileged/train.py](rl_training/privileged/train.py) | [2,764,876 步，五图 80/80，0.2 m/s](rl_models/privileged/README.md) |
 
 ### Gazebo 可视化观看
 
@@ -176,7 +176,8 @@ python rl_training/privileged/visualize.py
 与 `train_multi_map.py` 一样，配置集中在脚本顶部：`MODEL` 指定模型，`WORLDS` 指定地图列表，
 `EPISODES_PER_MAP` 和 `MAX_STEPS_PER_EPISODE` 控制观看回合数与最大步数，
 `POSITION_JITTER_M` 和 `YAW_JITTER_DEG` 控制出生点扰动。
-默认使用 `latest_validated/model.zip`，在 `train_world3.sdf` 观看一回合、最多约 3 分钟仿真时间；
+默认使用 `latest_validated/model.zip`，依次观看直角矩形、真正 S 弯、圆角矩形、椭圆和 8 字，
+每图一回合、最多约 3 分钟仿真时间；
 失败会提前结束。出生点和工作边界读取地图同名 JSON。
 每张地图的评估报告与轨迹保存到 `OUTPUT_DIR` 下独立的 `evaluation_*` 目录。
 

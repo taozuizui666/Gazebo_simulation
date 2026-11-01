@@ -19,7 +19,7 @@ BASE_WORLD_FILE = SIMULATION_ROOT / "assets/world_base.sdf"  # 只复用地面�
 DEFAULT_MAP_COUNT = 5
 DEFAULT_TEMPLATES = ("rectangle", "s_bend", "rounded_rectangle", "ellipse", "figure_eight")
 DEFAULT_SEED = 42  # 相同参数和种子生成相同地图。
-WIDTH_RANGE_M = (3.2, 3.2)  # 统一道路中心线水平跨度。
+WIDTH_RANGE_M = (3.2, 3.2)  # 中心线基础宽度；S 弯为端部半圆直径。
 HEIGHT_RANGE_M = (4.8, 4.8)  # 统一道路中心线垂直跨度。
 ROAD_WIDTH_RANGE_M = (0.40, 0.40)  # 两侧墙之间的统一道路净宽。
 CORNER_RADIUS_RANGE_M = (0.60, 0.60)  # 圆角矩形中心线的弯道半径。
@@ -27,6 +27,8 @@ WALL_HEIGHT_M = DEFAULT_WALL_HEIGHT_M  # 默认跟随降墙高脚本（当前 0.
 WALL_THICKNESS_M = 0.15
 CURVE_SEGMENT_LENGTH_M = 0.12  # 较短曲线段让窄道路的弯道接缝更平滑。
 WORKSPACE_PADDING_M = 0.1
+S_BEND_SWAY_RATIO = 0.25  # 两侧 S 弯横向摆幅相对于 width；width 为端部半圆直径。
+S_BEND_MAX_SWAY_PER_LENGTH_SQUARED = 0.08  # 限制短边段的曲率，单位 1/m。
 # ===================== 配置区结束 =====================
 
 
@@ -55,15 +57,27 @@ def centerline(template, width, height, radius):
             result.append(((a * c, b * s), (c / a / norm, s / b / norm)))
         return result
     if template == "s_bend":
-        count = max(48, math.ceil(2 * math.pi * max(a, b) / CURVE_SEGMENT_LENGTH_M))
-        amplitude = .18 * b
+        # Two sinusoidal sides joined by semicircles: genuine signed-curvature
+        # reversals, with vertical tangents at the joins. Old SDFs stay intact.
+        length = height - width
+        if length <= 0:
+            raise ValueError("S 弯 height 必须大于 width。")
+        amplitude = min(S_BEND_SWAY_RATIO * width, S_BEND_MAX_SWAY_PER_LENGTH_SQUARED * length ** 2)
+        count = max(40, math.ceil(length / CURVE_SEGMENT_LENGTH_M))
+        cap_count = max(24, math.ceil(math.pi * a / CURVE_SEGMENT_LENGTH_M))
         result = []
-        for i in range(count):
-            t = 2 * math.pi * i / count
-            x, y = a * math.sin(t), b * math.cos(t) + amplitude * math.sin(2 * t)
-            dx, dy = a * math.cos(t), -b * math.sin(t) + 2 * amplitude * math.cos(2 * t)
-            norm = math.hypot(dx, dy)
-            result.append(((x, y), (dy / norm, -dx / norm)))
+        for side in (1, -1):
+            for i in range(count):
+                u = i / count if side == 1 else 1 - i / count
+                shift = amplitude * math.sin(math.pi * u) ** 2
+                slope = amplitude * math.pi / length * math.sin(2 * math.pi * u)
+                norm = math.hypot(1, slope)
+                result.append(((side * a + shift, length * (u - .5)),
+                               (side / norm, -side * slope / norm)))
+            for i in range(cap_count):
+                t = (0 if side == 1 else math.pi) + math.pi * i / cap_count
+                c, sn = math.cos(t), math.sin(t)
+                result.append(((a * c, side * length / 2 + a * sn), (c, sn)))
         return result
     count = max(3, math.ceil(math.pi * radius / 2 / CURVE_SEGMENT_LENGTH_M))
     result = []
@@ -212,18 +226,18 @@ def map_settings(template, width, height, road_width, radius, seed, boxes):
             forward.append((a*math.sin(2*t), b*math.sin(t), 0.,
                             math.atan2(b*math.cos(t), 2*a*math.cos(2*t))))
     if template == "s_bend":
-        amplitude = .18 * b
-        forward = []
-        for t in (0., math.pi/2, math.pi, 3*math.pi/2):
-            x, y = a * math.sin(t), b * math.cos(t) + amplitude * math.sin(2 * t)
-            dx, dy = a * math.cos(t), -b * math.sin(t) + 2 * amplitude * math.cos(2 * t)
-            forward.append((x, y, 0., math.atan2(dy, dx)))
+        line = centerline(template, width, height, radius)
+        forward = [(line[i][0][0], line[i][0][1], 0.,
+                    math.atan2(line[i][1][0], -line[i][1][1]))
+                   for i in (0, len(line)//4, len(line)//2, 3*len(line)//4)]
     reverse = [(x, y, z, math.atan2(math.sin(yaw+math.pi), math.cos(yaw+math.pi)))
                for x, y, z, yaw in forward]
     vertices = [point for polygon in wall_polygons(boxes) for point in polygon]
     xs, ys = zip(*vertices)
     return {
         "template": template, "seed": seed,
+        **({"geometry_version": "sinusoidal_sides_v2",
+            "reference_centerline": [p for p, _ in line]} if template == "s_bend" else {}),
         "parameters": {"width_m": width, "height_m": height, "road_width_m": road_width,
                        "corner_radius_m": radius if template == "rounded_rectangle" else None,
                        "wall_height_m": WALL_HEIGHT_M, "wall_thickness_m": WALL_THICKNESS_M},
@@ -259,7 +273,8 @@ def main():
     args = parser.parse_args()
     if args.count < 1:
         parser.error("count 必须大于零。")
-    constants = (WALL_HEIGHT_M, WALL_THICKNESS_M, CURVE_SEGMENT_LENGTH_M, WORKSPACE_PADDING_M)
+    constants = (WALL_HEIGHT_M, WALL_THICKNESS_M, CURVE_SEGMENT_LENGTH_M, WORKSPACE_PADDING_M,
+                 S_BEND_SWAY_RATIO, S_BEND_MAX_SWAY_PER_LENGTH_SQUARED)
     ranges = (WIDTH_RANGE_M, HEIGHT_RANGE_M, ROAD_WIDTH_RANGE_M, CORNER_RADIUS_RANGE_M)
     if (any(not math.isfinite(v) or v <= 0 for v in constants)
             or any(len(r) != 2 or not all(math.isfinite(v) and v > 0 for v in r)
@@ -282,6 +297,13 @@ def main():
             parser.error("道路过宽，椭圆内侧边界会自交；请增大短边或减小道路宽度。")
         elif template == "rectangle" and min(width, height) <= 2*offset:
             parser.error("矩形尺寸过小，内墙会相交。")
+        elif template == "s_bend":
+            length = height - width
+            if length <= 0:
+                parser.error("S 弯 height 必须大于 width。")
+            amplitude = min(S_BEND_SWAY_RATIO * width, S_BEND_MAX_SWAY_PER_LENGTH_SQUARED * length ** 2)
+            if offset >= width/2 or offset * 2*math.pi**2*amplitude/length**2 >= 1:
+                parser.error("S 弯内侧边界会折返；请增大尺寸或减小道路宽度。")
         elif template == "figure_eight":
             # 验证采样曲率半径，防止内侧偏移曲线在窄弯处折返。
             for i in range(720):

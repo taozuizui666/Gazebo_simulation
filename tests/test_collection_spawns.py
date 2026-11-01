@@ -15,7 +15,9 @@ class CollectionSpawnTests(unittest.TestCase):
         self.world = load_world_settings(collector.WORLDS[0])
         self.geometry = GroundTruthMap(self.world.world)
         self.vehicle = load_config(collector.MODEL.resolve().parent / "vehicle_config.h")
-        self.settings = collector.spawn_settings(0.2)
+        # Test recovery sampling independently of the user's current run toggle.
+        with patch.object(collector, "RECOVERY_ENABLED", True):
+            self.settings = collector.spawn_settings(0.2)
 
     def plan(self, **changes):
         return build_spawn_plan(self.world, self.geometry, self.vehicle, 20, 42,

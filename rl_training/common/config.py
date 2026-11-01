@@ -130,6 +130,13 @@ class RewardSettings:
     loop: float = LOOP_REWARD
     slow: float = SLOW_REWARD
     out_of_bounds: float = OUT_OF_BOUNDS_REWARD
+    # Opt in per campaign; archived models keep their original cruising task.
+    figure_eight_route_enabled: bool = False
+    route_crossing_radius_m: float = 0.55
+    route_timeout_factor: float = 1.8
+    route_progress_per_m: float = 6.0
+    route_switch_bonus: float = 2.0
+    route_failure_penalty: float = -20.0
 
 
 def vehicle_config(header=None):

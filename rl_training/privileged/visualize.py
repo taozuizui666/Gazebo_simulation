@@ -10,11 +10,13 @@ import sys
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parents[2]
-MODEL = ROOT / "rl_models/privileged/policies/validated_privileged_2392588_20261011_074049/model.zip"
+MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"
 WORLD_DIR = ROOT / "assets/worlds/simple"
-WORLDS = [WORLD_DIR / name for name in (
-    "rectangle_001.sdf", "s_bend_002.sdf", "rounded_rectangle_003.sdf",
-    "ellipse_004.sdf", "figure_eight_005.sdf")]
+WORLDS = [WORLD_DIR / "rectangle_001.sdf",
+          ROOT / "assets/worlds/simple_s_v2/s_bend_001.sdf",
+          WORLD_DIR / "rounded_rectangle_003.sdf",
+          WORLD_DIR / "ellipse_004.sdf",
+          WORLD_DIR / "figure_eight_005.sdf"]
 OUTPUT_DIR = ROOT / "rl_models/privileged/policies"  # 每张地图单独保存评估报告和轨迹。
 EPISODES_PER_MAP = 1                # 按地图 JSON 的评估出生点循环。
 MAX_STEPS_PER_EPISODE = 900         # 当前模型每步 0.2 秒，最多约 3 分钟；失败提前结束。

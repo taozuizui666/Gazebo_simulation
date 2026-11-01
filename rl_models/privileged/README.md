@@ -1,9 +1,37 @@
 # 特权环境场模型
 
-对应代码：[rl_training/privileged/](../../rl_training/privileged/README.md)。
-固定模型入口：`policies/latest_validated/model.zip`。
+对应代码：[rl_training/privileged](../../rl_training/privileged/README.md)。
 
 ## 当前已验证教师
+
+固定入口：`policies/latest_validated/model.zip`。
+冻结目录：`policies/validated_privileged_2764876_20261101_201259/`。
+PPO，292 维局部环境场与状态，128×128 隐藏层，15 个动作，目标速度 0.2 m/s；训练与评估关闭雷达。
+
+五图 × 两个新种子 × 八个正反向扰动起点 × 300 秒：**80/80 通过严格轨迹审计**，约 4,799.39 m、24,000 仿真秒，速度合规率 100%。
+
+| 地图 | 合格回合 | 最低覆盖分箱 | 最小保守净空 |
+| --- | --- | --- | --- |
+| 直角矩形 | 16/16 | 100/100 | 1.87 cm |
+| 真正 S 弯 | 16/16 | 100/100 | 8.59 cm |
+| 圆角矩形 | 16/16 | 100/100 | 7.78 cm |
+| 椭圆 | 16/16 | 100/100 | 8.54 cm |
+| 8 字 | 16/16 | 100/100 | 5.37 cm |
+
+8 字每回合 7 次正确对侧穿越及换环。采用中间检查点；同次训练 2,770,116 步最终模型发生矩形碰撞，不用于采集。
+
+证据：[严格审计](policies/latest_validated/audit.json)、[逐回合统计](policies/latest_validated/audit_episodes.csv)、[协议](policies/latest_validated/protocol.json)、[冻结清单](policies/latest_validated/map_manifest.json)。
+完整开发过程见 [8 字教师修复记录](../../../article/experiment_data/P0_FIGURE_EIGHT_ROUTE_README.md)。模型和原始评估数据保留在本地。
+
+```bash
+python rl_training/privileged/visualize.py --check
+python rl_training/privileged/visualize.py
+```
+
+默认依次观看直角矩形、真正 S 弯、圆角矩形、椭圆和 8 字，每图最多 180 仿真秒。
+这是五张简单图的有限协议验收，未验证组合图、随机森林或实车。随机森林采集配置仍需切换至本教师并先检查，不能假定旧采集配置已同步。
+
+## 历史教师：2026-10-11 单图验收
 
 目录：`policies/validated_privileged_2392588_20261011_074049/`。
 
@@ -25,17 +53,17 @@
 SHA-256：
 `7171b17cb1e492ec0434887bbb0128e0246ae0ce0d15875f1854a14d246b3365`。
 
-证据：[验收汇总](policies/latest_validated/validation_summary.json)、
-[逐回合报告](policies/latest_validated/validation_1/evaluation.json)、
-[轨迹和速度图](../../results/training/privileged/policies/latest_validated/validation_1/trajectories.png)、
-[本轮训练曲线](../../results/training/privileged/policies/latest_validated/training_curve.png)。
+证据：[验收汇总](policies/validated_privileged_2392588_20261011_074049/validation_summary.json)、
+[逐回合报告](policies/validated_privileged_2392588_20261011_074049/validation_1/evaluation.json)、
+[轨迹和速度图](../../results/training/privileged/policies/validated_privileged_2392588_20261011_074049/validation_1/trajectories.png)、
+[本轮训练曲线](../../results/training/privileged/policies/validated_privileged_2392588_20261011_074049/training_curve.png)。
 这些本地文件未上传 Git。选定检查点经过验收后冻结，因此不一定是最后一步权重。
 
 在 `Gazebo_simulation` 目录加载 ROS 与项目环境后观看 3 分钟：
 
 ```bash
 python rl_training/privileged/train.py \
-  --evaluate rl_models/privileged/policies/latest_validated/model.zip \
+  --evaluate rl_models/privileged/policies/validated_privileged_2392588_20261011_074049/model.zip \
   --gui --eval-episodes 1 --episode-steps 900
 ```
 
@@ -50,6 +78,6 @@ python rl_training/privileged/train.py \
 `logs/` 保存 TensorBoard；`runtime/` 保存该次六小时任务脚本、状态和 GUI 诊断文件。
 日常训练使用上述正式入口；历史任务状态中的路径可查上级迁移清单。
 
-距离场由 SDF 静态障碍几何及物理真值生成。当前训练实例使用同一张
+距离场由 SDF 静态障碍几何及物理真值生成。该历史批次训练实例使用同一张
 `train_world3.sdf`，已有验收也在这张地图上。因此尚未验证跨地图泛化；
 通过本次验收不等于新地图永不碰撞，也不等于未来雷达学生或实车能复现该表现。

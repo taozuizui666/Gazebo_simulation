@@ -15,14 +15,16 @@
 python rl_training/privileged/train.py
 python rl_training/privileged/train.py \
   --evaluate rl_models/privileged/policies/latest_validated/model.zip \
+  --world assets/worlds/simple/figure_eight_005.sdf \
   --gui --eval-episodes 1 --episode-steps 900
 ```
 
-当前已验证教师为 2,392,588 步、0.2 m/s，来自六小时续训。
+当前已验证教师为 2,764,876 步、0.2 m/s，五类简单图 80/80 回合通过严格轨迹验收；
+8 字每回合完成 7 次正确换环。完整证据见 [模型记录](../../rl_models/privileged/README.md)。
 
 可视化入口 [visualize.py](visualize.py) 与 `train_multi_map.py` 一样，配置集中在文件顶部。
 修改 `MODEL`、`WORLDS`、`EPISODES_PER_MAP`、`MAX_STEPS_PER_EPISODE` 和出生点扰动，
-即可依次观看指定地图。默认打开 `train_world3.sdf`，观看一回合、最多 180 仿真秒。
+即可依次观看指定地图。默认依次打开直角矩形、真正 S 弯、圆角矩形、椭圆和 8 字，每图一回合、最多 180 仿真秒。
 脚本自动加载 ROS、Gazebo 和项目环境；每张地图的报告和轨迹保存到 `OUTPUT_DIR` 下独立的 `evaluation_*` 目录。
 
 ```bash
@@ -37,7 +39,8 @@ python rl_training/privileged/visualize.py          # 打开 Gazebo 观看
 
 入口 [collect_data.py](collect_data.py) 自动加载 ROS/Gazebo 环境。配置集中在文件顶部：
 模型、地图列表、每轮秒数、每图轮数、出生扰动、输出路径、GUI、置零比例和随机种子。
-当前使用已验证教师，按列表依次采集四张地图，每张 20 轮，每轮最多 3600 仿真秒。
+采集脚本仍保留旧批次的模型和地图配置；本次教师修复没有自动启动或修改采集任务。
+开始新采集前，应切换到 2,764,876 步冻结教师及五张简单图，先执行 `--check` 和小规模核查。
 GUI 默认关闭，实际墙钟耗时还包含启动、复位和保存；首次验证建议先用下方的短程命令。
 
 ```python

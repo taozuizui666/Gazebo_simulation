@@ -127,7 +127,18 @@ def evaluate_model(args):
     directory = args.output_dir / f"evaluation_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
     directory.mkdir(parents=True)
     env = None
-    episodes, traces = [], []
+    episodes, traces, diagnostics = [], [], []
+
+    def save_traces():
+        # Persist completed and in-progress episodes, including on interruption.
+        for name, rows in (("trajectories", traces), ("step_diagnostics", diagnostics)):
+            temporary = directory / f"{name}.tmp.npz"
+            np.savez_compressed(temporary, **{f"episode_{i}": np.asarray(t) for i, t in enumerate(rows)})
+            temporary.replace(directory / f"{name}.npz")
+
+    (directory / "step_diagnostics_columns.json").write_text(json.dumps([
+        "sim_time_sec", "step_wall_sec", "clearance_m", "front_clearance_m", "collided"
+    ]) + "\n")
     random = np.random.default_rng(args.seed)
     progress = LiveState(directory / "evaluation_status.json", model_name=args.evaluate.name,
                          model_run=args.evaluate.parent.resolve().name, model_sha256=model_digest,
@@ -155,11 +166,20 @@ def evaluate_model(args):
             obs, initial = env.reset(seed=args.seed + index)
             episode_started = time.monotonic()
             trace = [[0., *initial["position"], initial["yaw"], 0., vehicle.straight_label, 0.]]
+            traces.append(trace)
+            diagnostic = []
+            diagnostics.append(diagnostic)
             while True:
                 action, _ = model.predict(obs, deterministic=True)
+                step_started = time.monotonic()
                 obs, reward, terminated, truncated, info = env.step(int(action))
+                diagnostic.append([info["episode_sim_time_sec"], time.monotonic() - step_started,
+                                   info.get("clearance_m", float("nan")),
+                                   info.get("front_clearance_m", float("nan")), info["collided"]])
                 trace.append([info["episode_sim_time_sec"], *info["position"], info["yaw"],
                               info["linear_velocity"], int(action), reward])
+                if info["step"] % 50 == 0:
+                    save_traces()
                 if terminated or truncated:
                     break
             entry = {
@@ -172,13 +192,17 @@ def evaluate_model(args):
                 "speed_compliance": info["speed_compliance"], "success": info["is_success"],
                 "collided": info["collided"], "stuck": info["stuck"], "looping": info["looping"],
                 "slow": info["slow"], "out_of_bounds": info["out_of_bounds"],
+                "route_failed": info.get("route_failed", False),
+                "route_switches": info.get("route_switches", 0),
             }
-            episodes.append(entry); traces.append(trace)
+            episodes.append(entry)
+            save_traces()
             progress.update(force=True, status="running", episodes=episodes)
             print(f"评估 {index+1}/{args.eval_episodes}: {entry['reason']}, "
                   f"{entry['sim_duration_sec']:.1f}s, {entry['distance_m']:.2f}m, "
                   f"速度 {entry['mean_speed_mps']:.4f}m/s", flush=True)
     except BaseException as error:
+        save_traces()
         progress.update(force=True,
                         status="interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
                         error_type=type(error).__name__, episodes=episodes)
@@ -187,7 +211,8 @@ def evaluate_model(args):
         if env is not None:
             env.close()
     reasons = {reason: sum(e["reason"] == reason for e in episodes)
-               for reason in ("time_limit", "collision", "stuck", "looping", "slow", "out_of_bounds")}
+               for reason in ("time_limit", "collision", "stuck", "looping", "slow", "out_of_bounds",
+                              "route_wrong_exit", "route_no_progress", "route_incomplete")}
     report = {
         "observation_mode": mode, "observation_spec": spec,
         "gui": args.gui,
@@ -195,6 +220,7 @@ def evaluate_model(args):
         "world_sha256": env.ground_truth_map.sha256 if env.ground_truth_map else None,
         "model": str(args.evaluate.resolve()), "model_sha256": model_digest,
         "world": args.world, "seed": args.seed, "vehicle": asdict(vehicle), "settings": asdict(settings),
+        "task_reward_settings": asdict(env.reward_settings),
         "pose_jitter_m": args.eval_jitter_m, "pose_jitter_deg": args.eval_jitter_deg,
         "episodes": episodes, "end_reasons": reasons,
         "success_rate": sum(e["success"] for e in episodes) / len(episodes),

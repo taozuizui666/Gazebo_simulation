@@ -38,6 +38,7 @@ from my_gazebo_launch.lidar_processing import scan_to_distances
 from . import config
 from .reward import compute_reward
 from .motion import MotionMonitor
+from .figure_eight_route import FigureEightRoute
 from .simulator import SimulationProcess
 from .progress_state import LiveState, utc_now
 from rl_training.privileged.observation import GroundTruthMap
@@ -193,6 +194,7 @@ class AicarGazeboEnv(gym.Env):
         self.vehicle = config.vehicle_config(header)
         self.settings = (settings or config.EnvironmentSettings()).validate()
         self.reward_settings = reward_settings or config.RewardSettings()
+        self.route = FigureEightRoute.for_world(world, self.reward_settings, self.vehicle.forward_speed_mps)
         self.role = role
         self.domain_id = domain_id if domain_id is not None else (
             config.TRAIN_ROS_DOMAIN if role == "train" else config.EVAL_ROS_DOMAIN)
@@ -410,6 +412,8 @@ class AicarGazeboEnv(gym.Env):
             self.previous_action = None
             self.previous_position = (odom["x"], odom["y"])
             self.motion.reset(end / 1e9, self.previous_position, odom["yaw"])
+            if self.route is not None:
+                self.route.reset(self.previous_position, odom["yaw"])
             self._needs_reset = False
             self.progress.update(force=True, phase="ready",
                                  episode_number=self.progress.data["episode_number"] + 1,
@@ -447,7 +451,10 @@ class AicarGazeboEnv(gym.Env):
             self.episode_sim_time += dt
             motion = self.motion.update(end / 1e9, position, odom["yaw"], odom["linear_x"], distance, dt)
             stuck, slow, looping, outside = (motion[k] for k in ("stuck", "slow", "looping", "out_of_bounds"))
-            terminated = collided or stuck or slow or looping or outside
+            route = (self.route.update(self.episode_sim_time, position,
+                                      final=self.current_step >= self.settings.max_steps) if self.route is not None else
+                     dict(route_reward=0., route_failed=False, route_reason='', route_switches=0, route_target_side=0))
+            terminated = collided or stuck or slow or looping or outside or route['route_failed']
             truncated = not terminated and self.current_step >= self.settings.max_steps
             safety = {}
             if self.ground_truth_map:
@@ -459,12 +466,19 @@ class AicarGazeboEnv(gym.Env):
                 action=action, previous_action=self.previous_action, vehicle=self.vehicle,
                 collided=collided, stuck=stuck, looping=looping, slow=slow,
                 out_of_bounds=outside, settings=self.reward_settings, **safety)
+            if not (collided or stuck or slow or looping or outside):
+                if route['route_failed']:
+                    reward -= terms['travel']
+                    terms['travel'] = 0.
+                terms['route'] = route['route_reward']
+                reward += terms['route']
             self.episode_return += reward
             self.previous_position, self.previous_action = position, action
             reason = ("collision" if collided else "stuck" if stuck else "looping" if looping
-                      else "slow" if slow else "out_of_bounds" if outside else "time_limit" if truncated else "")
+                      else "slow" if slow else "out_of_bounds" if outside else route['route_reason']
+                      if route['route_failed'] else "time_limit" if truncated else "")
             info = {
-                "observation_mode": self.observation_mode, **safety,
+                "observation_mode": self.observation_mode, **safety, **route,
                 "step": self.current_step, "position": position, "linear_velocity": odom["linear_x"],
                 "angular_velocity": odom["angular_z"], "collided": collided, "stuck": stuck,
                 "yaw": odom["yaw"], "action": action, **motion,

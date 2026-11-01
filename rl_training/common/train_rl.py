@@ -122,6 +122,7 @@ class CruiseMetricsCallback(BaseCallback):
                     "slow_rate": float(info["slow"]),
                     "out_of_bounds_rate": float(info["out_of_bounds"]),
                     "completion_rate": float(info["is_success"]),
+                    "route_failure_rate": float(info.get("route_failed", False)),
                     "distance_m": info["episode_distance_m"],
                     "sim_duration_sec": info["episode_sim_time_sec"],
                     "mean_speed_mps": info["episode_mean_speed_mps"],

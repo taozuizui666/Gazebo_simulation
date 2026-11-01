@@ -6,19 +6,25 @@ import sys
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parents[2]
+TRAINING_STAGE = "mixed"  # crossing：路口短回合；mixed：五类简单图整圈联合训练。
 WORLD_DIR = ROOT / "assets/worlds/simple"
-TRAIN_WORLDS = [WORLD_DIR / name for name in (
-    "rectangle_001.sdf", "s_bend_002.sdf", "rounded_rectangle_003.sdf",
-    "ellipse_004.sdf", "figure_eight_005.sdf")]
+TRAIN_WORLDS = [
+    WORLD_DIR / "rectangle_001.sdf",
+    ROOT / "assets/worlds/simple_s_v2/s_bend_001.sdf",  # 真正左右转向切换；旧 s_bend_002 为凸曲线。
+    WORLD_DIR / "rounded_rectangle_003.sdf",
+    WORLD_DIR / "ellipse_004.sdf",
+    WORLD_DIR / "figure_eight_005.sdf",
+]
 # 仅用于模型选择，不参与梯度更新；最终泛化验收应另用未参与选模的地图。
-EVAL_WORLDS = [ROOT / "assets/worlds/validation" / name for name in (
-    "validation_rectangle_001.sdf", "validation_s_bend_001.sdf")]
-OUTPUT_DIR = ROOT / "rl_models/privileged/five_simple_20261101"
-LOG_DIR = ROOT / "rl_models/privileged/logs/five_simple_20261101"
+EVAL_WORLDS = [ROOT / "assets/worlds/validation/validation_rectangle_001.sdf",
+               ROOT / "assets/worlds/validation_s_v2/validation_s_bend_v2.sdf",
+               ROOT / "assets/worlds/route_validation/figure_eight_001.sdf"]
+OUTPUT_DIR = ROOT / "rl_models/privileged/figure_eight_route" / TRAINING_STAGE
+LOG_DIR = ROOT / "rl_models/privileged/logs/figure_eight_route" / TRAINING_STAGE
 ENABLE_PROGRESS = False            # 自动启动本地手机进度页；False 不管理发布器
 PUBLISH_TO_GITHUB = False           # ENABLE_PROGRESS=True 时，同时同步 GitHub
 AUTO_RESUME = False                # 新实验固定从 RESUME_MODEL 初始化，不扫描旧实验目录
-RESUME_MODEL = ROOT / "rl_models/privileged/policies/validated_privileged_2392588_20261011_074049/model.zip"  # 无自动续训历史时使用
+RESUME_MODEL = ROOT / "rl_models/privileged/figure_eight_route/crossing/PPO_privileged_20261101_191919_a9dce8/rl_policy_final.zip"
 CONFIG_HEADER = RESUME_MODEL.parent / "vehicle_config.h"  # 速度/轮距与续训源保持一致
 RESUME_ALLOW_VEHICLE_CHANGE = False
 # 训练正常结束后独立验收；Ctrl+C/STOP 不自动启动验收。
@@ -45,11 +51,11 @@ EVAL_YAW_JITTER_DEG = 10.0
 SPAWN_MARGIN_M = 0.01               # 车体保守半径之外的额外净空
 SPAWN_ATTEMPTS = 50                 # 采样失败明确报错，不无限重试
 SEED = 42
-TOTAL_TIMESTEPS = 10_000_000         # 所有 worker 合计采样步数
-MAX_TRAINING_HOURS = 4.0                # 与总步数任一先达到就保存退出
+TOTAL_TIMESTEPS = 10_000         # 所有 worker 合计采样步数
+MAX_TRAINING_HOURS = .25                # 与总步数任一先达到就保存退出
 EVAL_FREQ = 20_000                  # 合计采样步数；评估时暂不训练
 EVAL_EPISODES_PER_MAP = 8           # 按地图 JSON 的评估出生点循环，固定种子
-SAVE_FREQ = 20_000
+SAVE_FREQ = 5_000
 N_STEPS = 512                      # 每个 worker 每次 PPO 更新前采样的步数
 BATCH_SIZE = 256                   # 必须整除 NUM_TRAIN_ENVS × N_STEPS
 LEARNING_RATE = 3e-4
@@ -82,6 +88,19 @@ REWARD = dict(distance_per_m=10.0, speed_error_per_sec=3.0,
               steering_change_penalty=0.1, front_distance_mm=450.0,
               front_half_angle_deg=20.0, front_risk_per_sec=2.0, turn_per_sec=0.15,
               collision=-20.0, stuck=-20.0, loop=-20.0, slow=-20.0, out_of_bounds=-20.0)
+REWARD.update(figure_eight_route_enabled=True, route_crossing_radius_m=.55,
+              route_timeout_factor=1.8, route_progress_per_m=6.0,
+              route_switch_bonus=2.0, route_failure_penalty=-20.0)
+if TRAINING_STAGE == "crossing":
+    TRAIN_WORLDS = [ROOT / "assets/worlds/route_crossing/figure_eight_crossing_train.sdf"]
+    EVAL_WORLDS = [ROOT / "assets/worlds/route_validation/figure_eight_001.sdf"]
+    NUM_TRAIN_ENVS = 2
+    MAX_STEPS_PER_EPISODE = 125  # 25 s：从路口前进入另一环路远端。
+    TOTAL_TIMESTEPS = 20_000
+    MAX_TRAINING_HOURS = .25  # 首轮至多 15 分钟，按结果再决定是否扩展。
+    EVAL_FREQ = SAVE_FREQ = 5_000
+elif TRAINING_STAGE != "mixed":
+    raise ValueError("TRAINING_STAGE 必须为 crossing 或 mixed。")
 # ===================== 配置区结束 =====================
 
 sys.path.insert(0, str(ROOT))
