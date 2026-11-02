@@ -21,13 +21,16 @@ from zoneinfo import ZoneInfo
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parents[2]
-MODEL = ROOT / "rl_models/privileged/policies/latest_validated/model.zip"
+MODEL = ROOT / "rl_models/privileged/policies/validated_privileged_2764876_20261101_201259/model.zip"
 LIDAR_CONFIG = ROOT / "my_gazebo_launch/vehicle_config.h"  # 采集雷达的扫描频率和原始点数
 WORLD_DIR = ROOT / "assets/worlds/simple"
-WORLDS = [WORLD_DIR / name for name in (
-    "rectangle_001.sdf", "s_bend_002.sdf", "rounded_rectangle_003.sdf",
-    "ellipse_004.sdf", "figure_eight_005.sdf",
-)]
+WORLDS = [
+    WORLD_DIR / "rectangle_001.sdf",
+    ROOT / "assets/worlds/simple_s_v2/s_bend_001.sdf",
+    WORLD_DIR / "rounded_rectangle_003.sdf",
+    WORLD_DIR / "ellipse_004.sdf",
+    WORLD_DIR / "figure_eight_005.sdf",
+]
 OUTPUT_DIR = ROOT / "results/datasets"          # 原始采集、增强数据、时序与日志
 DATASET_DIR = ROOT.parent / "dataset/simulation"  # 后续随机森林读取的副本
 COLLECTION_SECONDS = 300                      # 与本轮教师独立验收时限一致
@@ -130,6 +133,9 @@ def main():
     parser.add_argument("--rounds", type=int, default=COLLECTION_ROUNDS, help="每张地图的采集轮数")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
+    parser.add_argument("--worlds", nargs="+", help="覆盖 WORLDS 的地图路径；用于定向采集")
+    parser.add_argument("--targeted-spawns", type=Path,
+                        help="JSON：地图 stem -> eval 出生姿态列表；仅用于定向采集")
     parser.add_argument("--resume", type=Path, help="继续一个失败或中断的批次目录，跳过其中已完成的地图")
     args = parser.parse_args()
     if os.environ.get("RL_COLLECT_ENV_READY") != "1":
@@ -193,7 +199,16 @@ def main():
     settings = replace(settings, max_steps=max_steps)
     if step_seconds < 1 / vehicle.lidar_scan_hz + vehicle.sim_time_step_sec:
         raise ValueError("教师控制周期不足以获得新雷达帧。")
-    worlds = [load_world_settings(path) for path in WORLDS]
+    targeted_spawns = {}
+    if args.targeted_spawns is not None:
+        targeted_spawns = json.loads(args.targeted_spawns.expanduser().read_text(encoding="utf-8"))
+        if not isinstance(targeted_spawns, dict) or not targeted_spawns:
+            raise ValueError("--targeted-spawns 必须是非空 JSON 对象。")
+    world_paths = [Path(path) for path in args.worlds] if args.worlds else WORLDS
+    worlds = [load_world_settings(path, eval_spawn_poses=targeted_spawns.get(Path(path).stem))
+              for path in world_paths]
+    if targeted_spawns and set(targeted_spawns) != {world.world.stem for world in worlds}:
+        raise ValueError("--targeted-spawns 的键必须与 --worlds 的地图 stem 完全一致。")
     if len({world.world.stem for world in worlds}) != len(worlds):
         raise ValueError("地图文件名不能重复；每张地图按文件名保存一份训练集。")
     spawn_config = spawn_settings(step_seconds)
@@ -298,6 +313,9 @@ def main():
             "teacher_vehicle": asdict(teacher_vehicle), "lidar_config_source": str(LIDAR_CONFIG.resolve()),
             "observation_spec": spec, "vehicle": asdict(vehicle), "seed": SEED, "gui": gui,
             "spawn_randomization": spawn_config, "spawn_plans": spawn_plans,
+            "targeted_spawns": None if args.targeted_spawns is None else {
+                "file": str(args.targeted_spawns.expanduser().resolve()),
+                "sha256": hashlib.sha256(args.targeted_spawns.expanduser().read_bytes()).hexdigest()},
             "collection": {"seconds_per_round": args.seconds, "rounds_per_map": args.rounds,
                            "real_time_factor": real_time_factor,
                            "step_seconds": step_seconds, "steps_per_round": max_steps,

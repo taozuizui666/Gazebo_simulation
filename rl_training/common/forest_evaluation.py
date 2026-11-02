@@ -13,8 +13,11 @@ import numpy as np
 
 def validate_ring_world(world):
     metadata = json.loads(world.world.with_suffix(".json").read_text())
-    if metadata.get("template") not in ("ellipse", "rounded_rectangle", "rectangle"):
-        raise ValueError("检查点评分仅支持简单环路；此地图需先定义专用路线和成功条件。")
+    # 五图教师包含非凸的 S 弯和 8 字；检查点进度仍可记录，但闭环通过
+    # 由每回合是否完整到时限、无碰撞/卡住/绕圈/越界决定。
+    if metadata.get("template") not in ("ellipse", "rounded_rectangle", "rectangle",
+                                        "s_bend", "figure_eight"):
+        raise ValueError("检查点评分仅支持已定义的五类简单图。")
 
 
 def corrupt_scan(scan, scenario, rng, active):
@@ -138,6 +141,9 @@ def evaluate(args, runner, classifier, indices, vehicle):
             period = max(config.STEP_SIM_TIME_SEC, 1 / vehicle.lidar_scan_hz + vehicle.sim_time_step_sec)
             settings = replace(config.EnvironmentSettings(), max_steps=math.ceil(args.eval_seconds / period),
                                workspace_bounds=world.workspace_bounds)
+            server_dir = directory / world.world.stem / "_server"
+            server_dir.mkdir(parents=True)
+            env = None
             for scenario in scenarios:
                 for episode in range(args.episodes):
                     seed = runner.SEED + episode
@@ -148,17 +154,18 @@ def evaluate(args, runner, classifier, indices, vehicle):
                              "scenario": scenario, "episode": episode + 1, "seed": seed, "spawn": pose,
                              "status": "running", "body_clearance_radius_m": geometry.settings.body_clearance_radius_m,
                              "settings": asdict(settings)}
-                    env = None
                     trace, clearances, latencies = [], [], []
                     safe_time = switches = 0
                     previous = None
                     rng = np.random.default_rng(seed)
                     try:
                         progress = CheckpointProgress(world.train_spawn_poses, pose[:2], pose[3], runner.CHECKPOINT_RADIUS_M)
-                        env = AicarGazeboEnv(role="eval", domain_id=runner.ROS_DOMAIN, port=runner.GAZEBO_PORT,
-                                            header=runner.CONFIG_HEADER, world=world.world, spawn_pose=pose,
-                                            seed=seed, log_dir=run_dir, settings=settings, gui=False,
-                                            observation_mode="lidar", capture_lidar=True)
+                        if env is None:
+                            env = AicarGazeboEnv(role="eval", domain_id=runner.ROS_DOMAIN, port=runner.GAZEBO_PORT,
+                                                header=runner.CONFIG_HEADER, world=world.world, spawn_pose=pose,
+                                                seed=seed, log_dir=server_dir, settings=settings, gui=False,
+                                                observation_mode="lidar", capture_lidar=True)
+                        env.spawn_pose = pose
                         _, info = env.reset(seed=seed)
                         trace.append([0., *info["position"], info["yaw"], 0., vehicle.straight_label, 0.])
                         with (run_dir / "steps.jsonl").open("w") as steps:
@@ -199,13 +206,12 @@ def evaluate(args, runner, classifier, indices, vehicle):
                         raise
                     finally:
                         report["episodes"].append(entry)
-                        try:
-                            np.save(run_dir / "trajectory.npy", np.asarray(trace))
-                            save()
-                        finally:
-                            if env is not None:
-                                env.close()
+                        np.save(run_dir / "trajectory.npy", np.asarray(trace))
+                        save()
                     save_trajectory_plot(run_dir / "trajectory.png", [trace], [entry], world.world, settings)
+            if env is not None:
+                env.close()
+                env = None
         report["status"] = "complete"
     except BaseException as error:
         report.update(status="interrupted" if isinstance(error, KeyboardInterrupt) else "failed", error=str(error))

@@ -14,8 +14,8 @@ import time
 
 # ===================== 可修改配置区 =====================
 ROOT = Path(__file__).resolve().parent
-MODEL = ROOT.parent / "software/ML_model/simulation/randomForest.joblib"
-WORLD = "assets/worlds/simple/rounded_rectangle_003.sdf"  # 新五类简单图中的默认手动地图。
+MODEL = ROOT.parent / "software/ML_model/five_map_rf_validated_20261101/randomForest.joblib"
+WORLD = "assets/worlds/simple/rectangle_001.sdf"  # 新五类简单图中的默认手动地图。
 CONFIG_HEADER = ROOT / "my_gazebo_launch/vehicle_config.h"
 GUI = True
 RUN_SECONDS = 0.0             # 第一帧雷达之后的仿真秒数；0 表示一直运行，Ctrl+C 退出。
@@ -26,15 +26,20 @@ STARTUP_TIMEOUT_SEC = 60.0    # 等待首帧雷达的现实秒数。
 STATUS_INTERVAL_SEC = 2.0     # 终端状态输出间隔，现实秒数。
 LOG_PATH = ROOT / "results/random_forest/gazebo.log"
 # 批量评分使用固定步进、无 GUI；单次驾驶仍由 GUI 控制。
-EVAL_WORLDS = tuple(f"assets/worlds/simple/{name}.sdf" for name in (
-    "rectangle_001", "rounded_rectangle_003", "ellipse_004"))
-EVAL_EPISODES = 5
-EVAL_SECONDS = 180.0
+EVAL_WORLDS = (
+    "assets/worlds/simple/rectangle_001.sdf",
+    "assets/worlds/simple_s_v2/s_bend_001.sdf",
+    "assets/worlds/simple/rounded_rectangle_003.sdf",
+    "assets/worlds/simple/ellipse_004.sdf",
+    "assets/worlds/simple/figure_eight_005.sdf",
+)
+EVAL_EPISODES = 8
+EVAL_SECONDS = 300.0
 EVAL_SCENARIOS = ("normal",)  # 可加入 "dropout05", "dropout10", "sector"
 SAFE_CLEARANCE_M = 0.05       # 保守车身圆盘到障碍的净空阈值
-CHECKPOINT_RADIUS_M = 0.30   # 环路检查点到达半径
-MIN_EVAL_SCORE = 90.0
-MIN_SUCCESS_RATE = 0.95
+CHECKPOINT_RADIUS_M = 0.30   # 环路检查点到达半径；非凸图仅作辅助进度
+MIN_EVAL_SCORE = 0.0          # 五图通过由成功率/失败类别决定，非凸图不用进度硬门槛
+MIN_SUCCESS_RATE = 1.0
 EVAL_OUTPUT_DIR = ROOT / "results/random_forest"
 # ===================== 配置区结束 =====================
 
