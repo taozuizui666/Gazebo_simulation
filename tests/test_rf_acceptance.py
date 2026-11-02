@@ -40,8 +40,11 @@ class AcceptanceTests(unittest.TestCase):
         for field, value in [('episode_sim_time_sec', 299), ('speed_compliance', .94)]:
             with self.subTest(field=field):
                 self.assertFalse(acceptance.qualification(metrics, dict(info, **{field: value}), True)['fully_qualified'])
-        self.assertFalse(acceptance.qualification(dict(metrics, route_qualified=False), info, True)['fully_qualified'])
-        self.assertFalse(acceptance.qualification(dict(metrics, min_clearance_m=-.001), info, True)['fully_qualified'])
+        self.assertFalse(acceptance.qualification(metrics, info, False)['fully_qualified'])
+        self.assertTrue(acceptance.qualification(dict(metrics, route_qualified=False), info, True)['fully_qualified'])
+        result = acceptance.qualification(dict(metrics, min_clearance_m=-.001), info, True)
+        self.assertTrue(result['fully_qualified'])
+        self.assertFalse(result['clearance_qualified'])
 
     def test_failed_or_incomplete_suite_returns_failure(self):
         self.assertEqual(acceptance.acceptance_exit_code([dict(fully_qualified=True)], 1), 0)

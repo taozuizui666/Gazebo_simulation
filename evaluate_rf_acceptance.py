@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""冻结 RF 的五图/定向闭环验收：有符号净空、路线覆盖和 8 字换环。"""
+"""冻结 RF 闭环避障验收；净空、路线覆盖和 8 字换环作为辅助指标。"""
 from argparse import ArgumentParser
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -103,8 +103,8 @@ def qualification(metrics, info, reached_time_limit):
     clearance_ok = metrics['min_clearance_m'] >= CLEARANCE_M
     return dict(duration_qualified=bool(duration_ok), speed_qualified=bool(speed_ok),
                 clearance_qualified=bool(clearance_ok),
-                fully_qualified=bool(reached_time_limit and duration_ok and speed_ok
-                                     and clearance_ok and metrics['route_qualified']))
+                # 用户决定：不撞墙/到时限/速度合规为硬门槛；净空与换环只记录不否决。
+                fully_qualified=bool(reached_time_limit and duration_ok and speed_ok))
 
 
 def acceptance_exit_code(episodes, expected):
@@ -251,8 +251,8 @@ def main():
         geometry = GroundTruthMap(world.world)
         centerline_geometry(world.world)
         FigureEightRoute.for_world(world.world, ROUTE_SETTINGS, vehicle.forward_speed_mps)
-        if len(world.eval_spawn_poses) != EPISODES:
-            raise ValueError(f'{world.world}: 必须配置 {EPISODES} 个评估起点。')
+        if len(world.eval_spawn_poses) not in (EPISODES, 2 * EPISODES):
+            raise ValueError(f'{world.world}: 评估起点必须为 {EPISODES} 或 {2 * EPISODES} 个。')
         if args.mode == 'formal':
             for seed in seeds:
                 starts_for(world, geometry, seed, EPISODES)
@@ -267,7 +267,9 @@ def main():
                                        seeds, output, args.mode == 'development')
         all_episodes.extend(episodes)
         all_cells.extend(cells)
-    expected = len(worlds) * len(seeds) * EPISODES
+    episodes_per_map = {w.world.stem: len(w.eval_spawn_poses)
+                        if args.mode == 'development' else EPISODES for w in worlds}
+    expected = sum(episodes_per_map.values()) * len(seeds)
     exit_code = acceptance_exit_code(all_episodes, expected)
     report = {'passed': exit_code == 0, 'expected_episodes': expected,
               'vehicle': asdict(vehicle), 'route_settings': asdict(ROUTE_SETTINGS),
@@ -276,7 +278,13 @@ def main():
                           'metadata_sha256': hashlib.sha256(w.world.with_suffix('.json').read_bytes()).hexdigest()}
                          for w in worlds],
               'model': str(model_path), 'model_sha256': hashlib.sha256(model_path.read_bytes()).hexdigest(),
-              'mode': args.mode, 'protocol': {'episodes_per_map': EPISODES, 'seconds': SECONDS,
+              'mode': args.mode, 'protocol': {
+              'episodes_per_map': next(iter(episodes_per_map.values()))
+                  if len(set(episodes_per_map.values())) == 1 else None,
+              'episodes_per_map_per_seed': episodes_per_map,
+              'primary_pass_criteria': ['no_early_termination', 'duration_qualified', 'speed_qualified'],
+              'auxiliary_metrics': ['clearance_qualified', 'route_qualified', 'coverage_bins', 'route_switches'],
+              'seconds': SECONDS,
               'jitter_m': 0 if args.mode == 'development' else JITTER_M,
               'jitter_deg': 0 if args.mode == 'development' else JITTER_DEG,
               'seeds': list(seeds), 'clearance_m': CLEARANCE_M, 'coverage_bins': COVERAGE_BINS,
